@@ -11,6 +11,8 @@ export type Market = {
   active: boolean;
   closed: boolean;
   endDate?: string | null;
+  conditionId?: string;
+  negRisk?: boolean;
   disabledReason?: string;
 };
 
@@ -28,7 +30,15 @@ export type WalletStatus = {
   botAddress: string;
   depositWallet: string | null;
   depositWalletExists: boolean;
+  polBalance?: number;
+  usdcBalance?: number;
+  botPusdBalance?: number;
   pusdBalance: number;
+  exchangeAllowance?: number;
+  negRiskExchangeAllowance?: number;
+  negRiskAdapterAllowance?: number;
+  ctfExchangeApproved?: boolean;
+  ctfNegRiskApproved?: boolean;
   approvalsReady: boolean;
   readyToTrade: boolean;
   reason?: string;

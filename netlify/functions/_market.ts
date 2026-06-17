@@ -15,6 +15,8 @@ export type Market = {
   active: boolean;
   closed: boolean;
   endDate?: string | null;
+  conditionId?: string;
+  negRisk?: boolean;
   disabledReason?: string;
 };
 
@@ -92,6 +94,8 @@ function normalizeMarket(item: any): Market {
     active: item.active !== false,
     closed: item.closed === true,
     endDate: item.endDate || item.end_date || null,
+    conditionId: item.conditionId || item.condition_id || item.conditionID,
+    negRisk: item.negRisk === true || item.neg_risk === true,
   };
   const validation = validateMarketLight(market);
   return validation ? { ...market, disabledReason: validation } : market;

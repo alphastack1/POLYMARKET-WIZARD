@@ -1,6 +1,7 @@
 import { error, envCheck, json, riskConfig } from "./_env";
 import { writeJournal } from "./_journal";
 import { findMarket, validateMarket } from "./_market";
+import { getWalletStatusDetails, placeOrder } from "./_polymarket";
 
 export default async function handler(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -19,14 +20,32 @@ export default async function handler(req: Request) {
   const check = validateMarket(market);
   if (!check.ok) return error(check.reason || "Market not tradeable");
 
-  await writeJournal({
-    type: "buy_blocked",
-    message: "Buy passed guardrails but was blocked until live CLOB submit is connected.",
-    data: body,
-  });
+  try {
+    const order = await placeOrder({
+      market,
+      side: body.side === "NO" ? "NO" : "YES",
+      action: "buy",
+      amountUsd: Number(body.amountUsd),
+      limitPrice: body.limitPrice ? Number(body.limitPrice) : undefined,
+    });
+    const status = await getWalletStatusDetails();
 
-  return json({
-    ok: false,
-    message: "Buy blocked: connect live CLOB order submit before trading.",
-  });
+    await writeJournal({
+      type: "buy_submitted",
+      message: `${body.side} order submitted: $${Number(body.amountUsd).toFixed(2)}`,
+      data: { orderId: order.orderId, status: order.status, marketId: market.id },
+    });
+
+    return json({
+      ok: true,
+      message: `${body.side} order submitted: ${order.orderId.slice(0, 12)}...`,
+      orderId: order.orderId,
+      orderStatus: order.status,
+      status,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await writeJournal({ type: "buy_failed", message, data: body });
+    return error(message, 502);
+  }
 }

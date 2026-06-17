@@ -18,6 +18,10 @@
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
+    "@polymarket/builder-relayer-client": "^0.0.10",
+    "@polymarket/builder-signing-sdk": "^1.0.0",
+    "@polymarket/clob-client-v2": "^1.0.6",
+    "ethers": "^6.16.0",
     "lucide-react": "^1.20.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

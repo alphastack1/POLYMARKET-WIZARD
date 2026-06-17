@@ -52,15 +52,21 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedPrice = side === "YES" ? marketCheck?.yesPrice : marketCheck?.noPrice;
+  const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0);
+  const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
   const blockedReason = useMemo(() => {
     if (!env?.ok) return "SYS LOCK";
-    if (!wallet?.readyToTrade) return "ARM WALLET";
+    if (!wallet?.readyToTrade) {
+      if (walletArmed && botCollateral >= amount) return "DEPOSIT";
+      if (walletArmed) return "FUND BOT";
+      return "ARM WALLET";
+    }
     if (!selected) return "SELECT";
     if (!marketCheck?.ok) return "BLOCKED";
     if (!selectedPrice) return "NO PRICE";
     if (!amount || amount <= 0) return "SIZE";
     return null;
-  }, [amount, env, marketCheck, selected, selectedPrice, wallet]);
+  }, [amount, botCollateral, env, marketCheck, selected, selectedPrice, wallet, walletArmed]);
 
   const readinessScore = useMemo(() => {
     const checks = [Boolean(env?.ok), Boolean(wallet?.readyToTrade), Boolean(selected && marketCheck?.ok), Boolean(selectedPrice), Boolean(positions.length || selected)];
@@ -69,19 +75,21 @@ export default function App() {
 
   const activeStep = useMemo(() => {
     if (!env?.ok) return 0;
-    if (!wallet?.readyToTrade) return 1;
+    if (!walletArmed || !wallet?.readyToTrade) return 1;
     if (!selected || !marketCheck?.ok) return 2;
     if (positions.length === 0) return 3;
     return 4;
-  }, [env, marketCheck, positions.length, selected, wallet]);
+  }, [env, marketCheck, positions.length, selected, wallet, walletArmed]);
 
   const nextAction = useMemo(() => {
     if (!env?.ok) return { label: "CHECK", action: "env" as const, icon: ShieldCheck };
-    if (!wallet?.readyToTrade) return { label: "ARM", action: "setup" as const, icon: Wallet };
+    if (!walletArmed) return { label: "ARM", action: "setup" as const, icon: Wallet };
+    if (!wallet?.readyToTrade && botCollateral >= amount) return { label: "DEPOSIT", action: "deposit" as const, icon: CircleDollarSign };
+    if (!wallet?.readyToTrade) return { label: "FUND BOT", action: "fund" as const, icon: Wallet };
     if (!selected) return { label: "SCAN", action: "search" as const, icon: Search };
     if (!marketCheck?.ok) return { label: "VERIFY", action: "market" as const, icon: ShieldCheck };
     return { label: blockedReason || `BUY ${side} $${amount}`, action: "buy" as const, icon: Flame };
-  }, [amount, blockedReason, env, marketCheck, selected, side, wallet]);
+  }, [amount, blockedReason, botCollateral, env, marketCheck, selected, side, wallet, walletArmed]);
 
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
@@ -142,12 +150,22 @@ export default function App() {
     await refreshWallet();
   });
 
-  const deposit = () => run("deposit", async () => setNotice((await callApi<{ message: string }>("deposit", {})).message));
-  const withdraw = () => run("withdraw", async () => setNotice((await callApi<{ message: string }>("withdraw", {})).message));
+  const deposit = () => run("deposit", async () => {
+    const data = await callApi<{ message: string; status?: WalletStatus }>("deposit", { amountUsd: amount });
+    setNotice(data.message);
+    if (data.status) setWallet(data.status);
+    await refreshWallet();
+  });
+  const withdraw = () => run("withdraw", async () => {
+    const data = await callApi<{ message: string; status?: WalletStatus }>("withdraw", { amountUsd: amount });
+    setNotice(data.message);
+    if (data.status) setWallet(data.status);
+    await refreshWallet();
+  });
 
   const buy = () => run("buy", async () => {
     if (!selected || !selectedPrice) throw new Error("No selected market/price");
-    const data = await callApi<{ ok: boolean; message: string }>("buy", {
+    const data = await callApi<{ ok: boolean; message: string; status?: WalletStatus }>("buy", {
       marketId: selected.id,
       side,
       amountUsd: amount,
@@ -156,19 +174,23 @@ export default function App() {
       takeProfitPercent: takeProfit,
     });
     setNotice(data.message);
+    if (data.status) setWallet(data.status);
     await refreshPositions();
     await refreshJournal();
   });
 
   const sell = (position: Position) => run("sell", async () => {
-    const data = await callApi<{ ok: boolean; message: string }>("sell", {
+    const data = await callApi<{ ok: boolean; message: string; status?: WalletStatus }>("sell", {
       positionId: position.id,
+      marketId: position.marketId,
+      side: position.side,
       tokenId: position.tokenId,
       shares: position.shares,
       limitPrice: position.currentPrice,
       reason: "manual",
     });
     setNotice(data.message);
+    if (data.status) setWallet(data.status);
     await refreshPositions();
     await refreshJournal();
   });
@@ -183,6 +205,11 @@ export default function App() {
   const runNextAction = () => {
     if (nextAction.action === "env") return run("system", refreshEnv);
     if (nextAction.action === "setup") return setupWallet();
+    if (nextAction.action === "deposit") return deposit();
+    if (nextAction.action === "fund") {
+      setNotice("Send POL for gas plus USDC.e or pUSD collateral to the bot wallet, then SYNC.");
+      return run("refresh", refreshWallet);
+    }
     if (nextAction.action === "search") return searchMarkets();
     if (nextAction.action === "market") return run("market", () => checkSelectedMarket(selected));
     return buy();
@@ -302,6 +329,13 @@ export default function App() {
           <Title icon={Wallet} k="FUND" v="WALLET" />
           <div className="kv"><span>ENV</span><strong className={env?.ok ? "good" : "bad"}>{env?.ok ? "READY" : "LOCKED"}</strong></div>
           <div className="kv"><span>WALLET</span><strong className={wallet?.readyToTrade ? "good" : "bad"}>{wallet?.readyToTrade ? "READY" : "LOCKED"}</strong></div>
+          <div className="kv"><span>BOT</span><strong>{short(wallet?.botAddress || "--")}</strong></div>
+          <div className="kv"><span>DEPLOY</span><strong className={wallet?.depositWalletExists ? "good" : "bad"}>{wallet?.depositWalletExists ? short(wallet?.depositWallet || "") : "NO"}</strong></div>
+          <div className="kv"><span>POL</span><strong>{(wallet?.polBalance || 0).toFixed(4)}</strong></div>
+          <div className="kv"><span>USDC.E</span><strong>{(wallet?.usdcBalance || 0).toFixed(2)}</strong></div>
+          <div className="kv"><span>BOT PUSD</span><strong>{(wallet?.botPusdBalance || 0).toFixed(2)}</strong></div>
+          <div className="kv"><span>DEPOSIT PUSD</span><strong>{(wallet?.pusdBalance || 0).toFixed(2)}</strong></div>
+          {wallet?.reason && <div className="reason">{wallet.reason}</div>}
           <FundingGauge balance={wallet?.pusdBalance || 0} target={amount || 1} />
           <div className="stack">
             <button onClick={() => run("system", refreshEnv)}><ShieldCheck size={16} />CHECK</button>

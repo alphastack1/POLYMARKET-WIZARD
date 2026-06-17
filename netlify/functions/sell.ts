@@ -1,5 +1,6 @@
 import { error, envCheck, json } from "./_env";
 import { writeJournal } from "./_journal";
+import { getWalletStatusDetails, placeTokenOrder } from "./_polymarket";
 
 export default async function handler(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -10,14 +11,31 @@ export default async function handler(req: Request) {
   if (!body.tokenId) return error("Missing tokenId");
   if (!Number.isFinite(Number(body.shares)) || Number(body.shares) <= 0) return error("Invalid shares");
 
-  await writeJournal({
-    type: "sell_blocked",
-    message: "Sell passed basic checks but was blocked until live CLOB submit is connected.",
-    data: body,
-  });
+  try {
+    const order = await placeTokenOrder({
+      tokenId: String(body.tokenId),
+      action: "sell",
+      shares: Number(body.shares),
+      limitPrice: body.limitPrice ? Number(body.limitPrice) : 0.01,
+    });
+    const status = await getWalletStatusDetails();
 
-  return json({
-    ok: false,
-    message: "Sell blocked: connect live CLOB order submit before trading.",
-  });
+    await writeJournal({
+      type: "sell_submitted",
+      message: `${body.side || "YES"} sell submitted: ${Number(body.shares).toFixed(2)} shares`,
+      data: { orderId: order.orderId, marketId: body.marketId, tokenId: body.tokenId },
+    });
+
+    return json({
+      ok: true,
+      message: `Sell submitted: ${order.orderId.slice(0, 12)}...`,
+      orderId: order.orderId,
+      orderStatus: order.status,
+      status,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await writeJournal({ type: "sell_failed", message, data: body });
+    return error(message, 502);
+  }
 }

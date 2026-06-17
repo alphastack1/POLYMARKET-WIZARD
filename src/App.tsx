@@ -12,7 +12,6 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Wallet,
   XCircle,
   type LucideIcon,
@@ -37,8 +36,9 @@ export default function App() {
   const [env, setEnv] = useState<EnvCheck | null>(null);
   const [wallet, setWallet] = useState<WalletStatus | null>(null);
   const [keyword, setKeyword] = useState(loadSetting("keyword", "bitcoin"));
-  const [markets, setMarkets] = useState<Market[]>([]);
-  const [selected, setSelected] = useState<Market | null>(loadSetting<Market | null>("selectedMarket", null));
+  const storedSelected = useMemo(() => loadSetting<Market | null>("selectedMarket", null), []);
+  const [markets, setMarkets] = useState<Market[]>(storedSelected ? [storedSelected] : []);
+  const [selected, setSelected] = useState<Market | null>(storedSelected);
   const [marketCheck, setMarketCheck] = useState<MarketCheck | null>(null);
   const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
   const [amount, setAmount] = useState(loadSetting("amount", 1));
@@ -53,14 +53,19 @@ export default function App() {
 
   const selectedPrice = side === "YES" ? marketCheck?.yesPrice : marketCheck?.noPrice;
   const blockedReason = useMemo(() => {
-    if (!env?.ok) return "Complete system check";
-    if (!wallet?.readyToTrade) return wallet?.reason || "Set up and fund wallet";
-    if (!selected) return "Choose a market";
-    if (!marketCheck?.ok) return marketCheck?.reason || "Market not tradeable";
-    if (!selectedPrice) return "No valid price";
-    if (!amount || amount <= 0) return "Enter an amount";
+    if (!env?.ok) return "SYS LOCK";
+    if (!wallet?.readyToTrade) return "ARM WALLET";
+    if (!selected) return "SELECT";
+    if (!marketCheck?.ok) return "BLOCKED";
+    if (!selectedPrice) return "NO PRICE";
+    if (!amount || amount <= 0) return "SIZE";
     return null;
   }, [amount, env, marketCheck, selected, selectedPrice, wallet]);
+
+  const readinessScore = useMemo(() => {
+    const checks = [Boolean(env?.ok), Boolean(wallet?.readyToTrade), Boolean(selected && marketCheck?.ok), Boolean(selectedPrice), Boolean(positions.length || selected)];
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  }, [env, marketCheck, positions.length, selected, selectedPrice, wallet]);
 
   const activeStep = useMemo(() => {
     if (!env?.ok) return 0;
@@ -69,32 +74,23 @@ export default function App() {
     if (positions.length === 0) return 3;
     return 4;
   }, [env, marketCheck, positions.length, selected, wallet]);
-  const readinessScore = useMemo(() => {
-    const checks = [
-      Boolean(env?.ok),
-      Boolean(wallet?.readyToTrade),
-      Boolean(selected && marketCheck?.ok),
-      Boolean(selectedPrice),
-      Boolean(positions.length || selected),
-    ];
-    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  }, [env, marketCheck, positions.length, selected, selectedPrice, wallet]);
-  const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
-  const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
 
   const nextAction = useMemo(() => {
-    if (!env?.ok) return { label: "Run system check", action: "env" as const, icon: ShieldCheck };
-    if (!wallet?.readyToTrade) return { label: "Prepare wallet", action: "setup" as const, icon: Wallet };
-    if (!selected) return { label: "Find a market", action: "search" as const, icon: Search };
-    if (!marketCheck?.ok) return { label: "Recheck market", action: "market" as const, icon: ShieldCheck };
-    return { label: blockedReason || `Buy ${side} for $${amount}`, action: "buy" as const, icon: Flame };
+    if (!env?.ok) return { label: "CHECK", action: "env" as const, icon: ShieldCheck };
+    if (!wallet?.readyToTrade) return { label: "ARM", action: "setup" as const, icon: Wallet };
+    if (!selected) return { label: "SCAN", action: "search" as const, icon: Search };
+    if (!marketCheck?.ok) return { label: "VERIFY", action: "market" as const, icon: ShieldCheck };
+    return { label: blockedReason || `BUY ${side} $${amount}`, action: "buy" as const, icon: Flame };
   }, [amount, blockedReason, env, marketCheck, selected, side, wallet]);
+
+  const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
+  const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
   const steps: Array<{ label: string; value: string; Icon: LucideIcon }> = [
-    { label: "System", value: env?.ok ? "Ready" : "Blocked", Icon: ShieldCheck },
-    { label: "Wallet", value: wallet?.readyToTrade ? "Ready" : "Setup needed", Icon: Wallet },
-    { label: "Market", value: marketCheck?.ok ? "Validated" : "Pick one", Icon: Search },
-    { label: "Trade", value: positions.length ? `${positions.length} open` : "No position", Icon: Activity },
-    { label: "Autopilot", value: polling ? "Watching" : "Off", Icon: Bot },
+    { label: "SYS", value: env?.ok ? "OK" : "LOCK", Icon: ShieldCheck },
+    { label: "WALLET", value: wallet?.readyToTrade ? "OK" : "LOCK", Icon: Wallet },
+    { label: "MARKET", value: marketCheck?.ok ? "OK" : "WAIT", Icon: Search },
+    { label: "TRADE", value: positions.length ? String(positions.length) : "0", Icon: Activity },
+    { label: "BOT", value: polling ? "ON" : "OFF", Icon: Bot },
   ];
 
   const run = useCallback(async <T,>(label: string, task: () => Promise<T>) => {
@@ -111,70 +107,43 @@ export default function App() {
     }
   }, []);
 
-  const refreshEnv = useCallback(async () => {
-    const data = await callApi<EnvCheck>("env-check");
-    setEnv(data);
-  }, []);
-
-  const refreshWallet = useCallback(async () => {
-    const data = await callApi<WalletStatus>("wallet-status");
-    setWallet(data);
-  }, []);
-
-  const refreshPositions = useCallback(async () => {
-    const data = await callApi<{ ok: true; positions: Position[] }>("positions");
-    setPositions(data.positions);
-  }, []);
-
-  const refreshJournal = useCallback(async () => {
-    const data = await callApi<{ ok: true; entries: JournalEntry[] }>("journal");
-    setJournal(data.entries);
-  }, []);
-
+  const refreshEnv = useCallback(async () => setEnv(await callApi<EnvCheck>("env-check")), []);
+  const refreshWallet = useCallback(async () => setWallet(await callApi<WalletStatus>("wallet-status")), []);
+  const refreshPositions = useCallback(async () => setPositions((await callApi<{ ok: true; positions: Position[] }>("positions")).positions), []);
+  const refreshJournal = useCallback(async () => setJournal((await callApi<{ ok: true; entries: JournalEntry[] }>("journal")).entries), []);
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshEnv(), refreshWallet(), refreshPositions(), refreshJournal()]);
   }, [refreshEnv, refreshJournal, refreshPositions, refreshWallet]);
 
   const searchMarkets = async () => {
     saveSetting("keyword", keyword);
-    await run("searching", async () => {
+    await run("scan", async () => {
       const data = await callApi<{ ok: true; markets: Market[] }>(`search-markets?q=${encodeURIComponent(keyword)}`);
       setMarkets(data.markets);
-      setNotice(`Found ${data.markets.length} guarded markets for "${keyword}"`);
+      setNotice(`${data.markets.length} MARKET${data.markets.length === 1 ? "" : "S"} FOUND`);
     });
   };
 
   const checkSelectedMarket = useCallback(async (market: Market | null) => {
-    if (!market) {
-      setMarketCheck(null);
-      return;
-    }
-    const data = await callApi<MarketCheck>("market-check", { marketId: market.id });
-    setMarketCheck(data);
+    if (!market) return setMarketCheck(null);
+    setMarketCheck(await callApi<MarketCheck>("market-check", { marketId: market.id }));
   }, []);
 
   const selectMarket = async (market: Market) => {
     if (market.disabledReason) return;
     setSelected(market);
     saveSetting("selectedMarket", market);
-    await run("checking market", () => checkSelectedMarket(market));
+    await run("market", () => checkSelectedMarket(market));
   };
 
-  const setupWallet = () => run("setup wallet", async () => {
+  const setupWallet = () => run("wallet", async () => {
     const data = await callApi<{ ok: boolean; message: string }>("setup-wallet", {});
     setNotice(data.message);
     await refreshWallet();
   });
 
-  const deposit = () => run("deposit", async () => {
-    const data = await callApi<{ message: string }>("deposit", {});
-    setNotice(data.message);
-  });
-
-  const withdraw = () => run("withdraw", async () => {
-    const data = await callApi<{ message: string }>("withdraw", {});
-    setNotice(data.message);
-  });
+  const deposit = () => run("deposit", async () => setNotice((await callApi<{ message: string }>("deposit", {})).message));
+  const withdraw = () => run("withdraw", async () => setNotice((await callApi<{ message: string }>("withdraw", {})).message));
 
   const buy = () => run("buy", async () => {
     if (!selected || !selectedPrice) throw new Error("No selected market/price");
@@ -212,10 +181,10 @@ export default function App() {
   }, [refreshJournal, refreshPositions]);
 
   const runNextAction = () => {
-    if (nextAction.action === "env") return run("env check", refreshEnv);
+    if (nextAction.action === "env") return run("system", refreshEnv);
     if (nextAction.action === "setup") return setupWallet();
     if (nextAction.action === "search") return searchMarkets();
-    if (nextAction.action === "market") return run("checking market", () => checkSelectedMarket(selected));
+    if (nextAction.action === "market") return run("market", () => checkSelectedMarket(selected));
     return buy();
   };
 
@@ -234,9 +203,7 @@ export default function App() {
   useEffect(() => saveSetting("polling", polling), [polling]);
 
   useEffect(() => {
-    if (!polling) return;
-    if (!env?.ok || !wallet?.readyToTrade || positions.length === 0) return;
-
+    if (!polling || !env?.ok || !wallet?.readyToTrade || positions.length === 0) return;
     let running = false;
     async function tick() {
       if (running) return;
@@ -249,7 +216,6 @@ export default function App() {
         running = false;
       }
     }
-
     tick();
     const id = window.setInterval(tick, pollMs);
     return () => window.clearInterval(id);
@@ -258,163 +224,119 @@ export default function App() {
   const NextIcon = nextAction.icon;
 
   return (
-    <main className="app-shell">
-      <section className="hero">
-        <div className="hero-copy">
-          <div className="brand-lockup">
-            <div className="brand-mark"><Sparkles size={22} /></div>
-            <span>Polymarket Wizard</span>
-          </div>
-          <h1>One guided path from setup to guarded trades.</h1>
-          <p>
-            Search a market, fund the bot wallet, choose a side, and let the wizard block anything
-            stale, closed, unfunded, or unsafe.
-          </p>
-        </div>
-        <div className="command-card">
-          <div className="command-head">
-            <span>Next best action</span>
-            <button className="ghost-button" onClick={() => run("refresh", refreshAll)} disabled={Boolean(busy)}>
-              <RefreshCcw size={15} />
-              {busy ? busy : "Refresh"}
-            </button>
-          </div>
-          <div className="readiness">
-            <ReadinessRing score={readinessScore} />
-            <div>
-              <span>Wizard readiness</span>
-              <strong>{readinessScore}%</strong>
-              <p>{blockedReason || "All core gates are open for the next trade."}</p>
-            </div>
-          </div>
-          <button className="mega-button" onClick={runNextAction} disabled={Boolean(busy)}>
-            <NextIcon size={22} />
-            <span>{busy ? "Working..." : nextAction.label}</span>
-            <ArrowRight size={20} />
-          </button>
-          <div className="mini-ledger">
-            <Metric label="Bot wallet" value={short(env?.botAddress || wallet?.botAddress || "unknown")} />
-            <Metric label="Deposit wallet" value={short(wallet?.depositWallet || "not ready")} />
-            <Metric label="pUSD" value={`$${(wallet?.pusdBalance || 0).toFixed(2)}`} />
-          </div>
-        </div>
-      </section>
+    <main className="deck">
+      <header className="topline">
+        <div className="mark"><Bot size={18} /></div>
+        <strong>WIZARD</strong>
+        <span>{short(env?.botAddress || wallet?.botAddress || "NO WALLET")}</span>
+        <button onClick={() => run("refresh", refreshAll)} disabled={Boolean(busy)}><RefreshCcw size={15} />SYNC</button>
+      </header>
 
       {(error || notice) && (
-        <section className={error ? "toast error" : "toast ok"}>
-          {error ? <XCircle size={18} /> : <CheckCircle2 size={18} />}
+        <section className={error ? "alert error" : "alert ok"}>
+          {error ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
           <span>{error || notice}</span>
         </section>
       )}
 
-      <section className="wizard-strip">
-        {steps.map(({ label, value, Icon }, index) => (
-          <div className={index === activeStep ? "wizard-step active" : index < activeStep ? "wizard-step done" : "wizard-step"} key={label}>
-            <Icon size={18} />
-            <div>
-              <strong>{label}</strong>
-              <span>{value}</span>
-            </div>
+      <section className="layout">
+        <aside className="rail panel">
+          <ReadinessRing score={readinessScore} />
+          <div className="steps">
+            {steps.map(({ label, value, Icon }, index) => (
+              <div className={index === activeStep ? "step active" : index < activeStep ? "step done" : "step"} key={label}>
+                <Icon size={16} />
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
           </div>
-        ))}
-      </section>
+          <button className="prime" onClick={runNextAction} disabled={Boolean(busy)}>
+            <NextIcon size={18} />
+            {busy ? busy.toUpperCase() : nextAction.label}
+            <ArrowRight size={18} />
+          </button>
+        </aside>
 
-      <section className="main-grid">
-        <section className="surface market-surface">
-          <SectionTitle icon={Search} label="Discover" title="Find a tradeable market" />
-          <div className="search-box">
-            <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} placeholder="bitcoin, fed, nba, elections..." />
-            <button onClick={searchMarkets} disabled={busy === "searching"}><Search size={18} /> Search</button>
+        <section className="panel scan">
+          <Title icon={Search} k="SCAN" v="MARKET" />
+          <div className="search-row">
+            <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} />
+            <button onClick={searchMarkets} disabled={busy === "scan"}><Search size={16} /></button>
           </div>
           <div className="market-list">
-            {markets.length === 0 && <EmptyState text="Search results appear here. Closed and invalid markets cannot be selected." />}
+            {markets.length === 0 && <Empty text="READY" />}
             {markets.map((market) => (
-              <button key={market.id} className={`market-card ${selected?.id === market.id ? "selected" : ""}`} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
+              <button key={market.id} className={selected?.id === market.id ? "market selected" : "market"} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
                 {market.image && <img src={market.image} alt="" />}
-                <span className="market-question">{market.question}</span>
-                <span className={market.disabledReason ? "market-badge bad" : "market-badge"}>
-                  {market.disabledReason || `$${compactNumber(market.liquidity)} liquidity`}
-                </span>
+                <strong>{market.question}</strong>
+                <span>{market.disabledReason || `$${compactNumber(market.liquidity)} LIQ`}</span>
               </button>
             ))}
           </div>
         </section>
 
-        <section className="surface trade-surface">
-          <SectionTitle icon={Flame} label="Execute" title="Build the trade" />
-          <div className="selected-panel">
-            <span>Selected market</span>
-            <strong>{selected?.question || "No market selected yet"}</strong>
-            <p>{marketCheck?.ok ? `YES ${cents(marketCheck.yesPrice)} / NO ${cents(marketCheck.noPrice)} - spread ${marketCheck.spreadCents}c` : marketCheck?.reason || "Wizard will validate the market before buying."}</p>
-          </div>
+        <section className="panel trade">
+          <Title icon={Flame} k="TRADE" v={side} />
+          <div className="question">{selected?.question || "SELECT"}</div>
           <ProbabilityChart yes={marketCheck?.yesPrice} no={marketCheck?.noPrice} />
-
-          <div className="side-switch">
+          <div className="side-row">
             <button className={side === "YES" ? "yes active" : "yes"} onClick={() => setSide("YES")}>YES</button>
             <button className={side === "NO" ? "no active" : "no"} onClick={() => setSide("NO")}>NO</button>
           </div>
-
-          <div className="trade-form">
-            <NumberField label="Amount" prefix="$" value={amount} onChange={setAmount} />
-            <Readout label="Limit price" value={cents(selectedPrice)} />
-            <NumberField label="Stop loss" suffix="%" value={stopLoss} onChange={setStopLoss} />
-            <NumberField label="Take profit" suffix="%" value={takeProfit} onChange={setTakeProfit} />
+          <div className="inputs">
+            <Num label="SIZE" prefix="$" value={amount} setValue={setAmount} />
+            <Read label="LIMIT" value={cents(selectedPrice)} />
+            <Num label="STOP" suffix="%" value={stopLoss} setValue={setStopLoss} />
+            <Num label="TAKE" suffix="%" value={takeProfit} setValue={setTakeProfit} />
           </div>
           <ExitRuleChart stopLoss={stopLoss} takeProfit={takeProfit} selectedPrice={selectedPrice} />
-
-          <button className="buy-button" onClick={buy} disabled={Boolean(blockedReason || busy)}>
-            <CircleDollarSign size={20} />
-            <span>{blockedReason || `Buy ${side} for $${amount}`}</span>
+          <button className="buy" onClick={buy} disabled={Boolean(blockedReason || busy)}>
+            <CircleDollarSign size={18} />
+            {blockedReason || `${side} $${amount}`}
           </button>
-
-          <details className="advanced">
-            <summary><SlidersHorizontal size={16} /> Advanced guardrails</summary>
-            <p>Server-side checks revalidate env, wallet status, market status, liquidity, spread, token IDs, balance, and max trade size before every order.</p>
-          </details>
+          <div className="guardline"><SlidersHorizontal size={14} /><span>GUARDS</span><i /></div>
         </section>
 
-        <section className="surface wallet-surface">
-          <SectionTitle icon={Wallet} label="Fund" title="Prepare the bot wallet" />
-          <div className="wallet-state">
-            <StatusPill good={Boolean(env?.ok)} label={env?.ok ? "Env ready" : "Env blocked"} />
-            <StatusPill good={Boolean(wallet?.readyToTrade)} label={wallet?.readyToTrade ? "Wallet ready" : "Wallet locked"} />
-          </div>
+        <section className="panel wallet">
+          <Title icon={Wallet} k="FUND" v="WALLET" />
+          <div className="kv"><span>ENV</span><strong className={env?.ok ? "good" : "bad"}>{env?.ok ? "READY" : "LOCKED"}</strong></div>
+          <div className="kv"><span>WALLET</span><strong className={wallet?.readyToTrade ? "good" : "bad"}>{wallet?.readyToTrade ? "READY" : "LOCKED"}</strong></div>
           <FundingGauge balance={wallet?.pusdBalance || 0} target={amount || 1} />
-          <div className="action-stack">
-            <button onClick={() => run("env check", refreshEnv)}><ShieldCheck size={18} /> Run system check</button>
-            <button onClick={setupWallet} disabled={Boolean(busy)}><LockKeyhole size={18} /> One-click wallet setup</button>
-            <button onClick={deposit}><CircleDollarSign size={18} /> Deposit pUSD</button>
-            <button onClick={withdraw}><ArrowRight size={18} /> Withdraw</button>
+          <div className="stack">
+            <button onClick={() => run("system", refreshEnv)}><ShieldCheck size={16} />CHECK</button>
+            <button onClick={setupWallet}><LockKeyhole size={16} />ARM</button>
+            <button onClick={deposit}><CircleDollarSign size={16} />DEPOSIT</button>
+            <button onClick={withdraw}><ArrowRight size={16} />WITHDRAW</button>
           </div>
-          <p className="fine-print">{env?.missing?.length ? `Missing: ${env.missing.join(", ")}` : wallet?.reason || "System credentials are present."}</p>
         </section>
 
-        <section className="surface positions-surface">
-          <SectionTitle icon={Gauge} label="Autopilot" title="Watch open positions" />
+        <section className="panel bot-panel">
+          <Title icon={Gauge} k="BOT" v={polling ? "ON" : "OFF"} />
           <ExposureChart exposure={exposure} pnl={pnl} maxDailyLoss={10} />
-          <label className="autopilot">
+          <label className="toggle">
             <input type="checkbox" checked={polling} disabled={!env?.ok || !wallet?.readyToTrade || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
-            <span>Check exits every 60 seconds</span>
+            <span>60S EXIT</span>
           </label>
-          <div className="position-list">
-            {positions.length === 0 && <EmptyState text="No open positions. The wizard will enable autopilot after the first position appears." />}
+          <div className="positions">
+            {positions.length === 0 && <Empty text="FLAT" />}
             {positions.map((position) => (
-              <article className="position-card" key={position.id}>
+              <article className="position" key={position.id}>
                 <strong>{position.question}</strong>
-                <span>{position.side} - {position.shares.toFixed(2)} shares - PnL ${position.pnl.toFixed(2)}</span>
-                <button onClick={() => sell(position)} disabled={Boolean(busy)}>Sell position</button>
+                <span>{position.side} / {position.shares.toFixed(2)} / ${position.pnl.toFixed(2)}</span>
+                <button onClick={() => sell(position)}>SELL</button>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="surface journal-surface">
-          <SectionTitle icon={History} label="Memory" title="Trade journal" />
+        <section className="panel journal-panel">
+          <Title icon={History} k="LOG" v={String(journal.length)} />
           <JournalTimeline entries={journal} />
           <div className="journal">
-            {journal.length === 0 && <EmptyState text="Setup, trade attempts, blocks, and fills will appear here." />}
+            {journal.length === 0 && <Empty text="CLEAR" />}
             {journal.map((entry) => (
-              <div className="journal-row" key={entry.id}>
+              <div className="row" key={entry.id}>
                 <span>{new Date(entry.at).toLocaleTimeString()}</span>
                 <strong>{entry.type}</strong>
                 <p>{entry.message}</p>
@@ -427,150 +349,64 @@ export default function App() {
   );
 }
 
-function SectionTitle({ icon: Icon, label, title }: { icon: LucideIcon; label: string; title: string }) {
-  return (
-    <div className="section-title">
-      <div><Icon size={18} /></div>
-      <span>{label}</span>
-      <h2>{title}</h2>
-    </div>
-  );
+function Title({ icon: Icon, k, v }: { icon: LucideIcon; k: string; v: string }) {
+  return <div className="title"><Icon size={17} /><span>{k}</span><strong>{v}</strong></div>;
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
+function Num({ label, value, setValue, prefix = "", suffix = "" }: { label: string; value: number; setValue: (value: number) => void; prefix?: string; suffix?: string }) {
+  return <label className="num"><span>{label}</span><div>{prefix}<input type="number" min="0" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
 }
 
-function StatusPill({ good, label }: { good: boolean; label: string }) {
-  return <span className={good ? "status-pill good" : "status-pill"}>{label}</span>;
+function Read({ label, value }: { label: string; value: string }) {
+  return <div className="read"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function NumberField({ label, value, onChange, prefix = "", suffix = "" }: { label: string; value: number; onChange: (value: number) => void; prefix?: string; suffix?: string }) {
-  return (
-    <label className="number-field">
-      <span>{label}</span>
-      <div>
-        {prefix && <em>{prefix}</em>}
-        <input type="number" min="0" value={value} onChange={(event) => onChange(Number(event.target.value))} />
-        {suffix && <em>{suffix}</em>}
-      </div>
-    </label>
-  );
-}
-
-function Readout({ label, value }: { label: string; value: string }) {
-  return <div className="readout"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function EmptyState({ text }: { text: string }) {
-  return <div className="empty-state">{text}</div>;
+function Empty({ text }: { text: string }) {
+  return <div className="empty">{text}</div>;
 }
 
 function ReadinessRing({ score }: { score: number }) {
-  const radius = 34;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
+  const r = 33;
+  const c = 2 * Math.PI * r;
   return (
-    <svg className="readiness-ring" viewBox="0 0 88 88" role="img" aria-label={`Wizard readiness ${score}%`}>
-      <circle cx="44" cy="44" r={radius} className="ring-track" />
-      <circle cx="44" cy="44" r={radius} className="ring-value" strokeDasharray={circumference} strokeDashoffset={offset} />
-      <text x="44" y="49" textAnchor="middle">{score}</text>
+    <svg className="ring" viewBox="0 0 88 88" role="img" aria-label={`readiness ${score}`}>
+      <circle cx="44" cy="44" r={r} className="track" />
+      <circle cx="44" cy="44" r={r} className="value" strokeDasharray={c} strokeDashoffset={c - (score / 100) * c} />
+      <text x="44" y="50" textAnchor="middle">{score}</text>
     </svg>
   );
 }
 
 function ProbabilityChart({ yes, no }: { yes?: number; no?: number }) {
-  const yesPercent = yes ? Math.max(0, Math.min(100, Math.round(yes * 100))) : 50;
-  const noPercent = no ? Math.max(0, Math.min(100, Math.round(no * 100))) : 100 - yesPercent;
-  return (
-    <div className="probability-chart" aria-label="YES and NO probability chart">
-      <div className="probability-head">
-        <span>Price map</span>
-        <strong>{yes ? `${yesPercent} / ${noPercent}` : "awaiting market"}</strong>
-      </div>
-      <div className="probability-bar">
-        <span className="yes-fill" style={{ width: `${yesPercent}%` }} />
-        <span className="no-fill" style={{ width: `${noPercent}%` }} />
-      </div>
-      <div className="probability-labels">
-        <span>YES {yes ? `${yesPercent}c` : "n/a"}</span>
-        <span>NO {no ? `${noPercent}c` : "n/a"}</span>
-      </div>
-    </div>
-  );
+  const yesPct = yes ? Math.max(0, Math.min(100, Math.round(yes * 100))) : 50;
+  const noPct = no ? Math.max(0, Math.min(100, Math.round(no * 100))) : 100 - yesPct;
+  return <div className="prob"><div><span style={{ width: `${yesPct}%` }} /><i style={{ width: `${noPct}%` }} /></div><p>YES {yes ? `${yesPct}C` : "--"} / NO {no ? `${noPct}C` : "--"}</p></div>;
 }
 
 function ExitRuleChart({ stopLoss, takeProfit, selectedPrice }: { stopLoss: number; takeProfit: number; selectedPrice?: number }) {
   const entry = selectedPrice || 0.5;
   const stop = Math.max(0.01, entry * (1 - stopLoss / 100));
   const take = Math.min(0.99, entry * (1 + takeProfit / 100));
-  const entryX = entry * 100;
-  const stopX = stop * 100;
-  const takeX = take * 100;
-  return (
-    <div className="exit-chart">
-      <div className="exit-track">
-        <span className="exit-stop" style={{ left: `${stopX}%` }} />
-        <span className="exit-entry" style={{ left: `${entryX}%` }} />
-        <span className="exit-take" style={{ left: `${takeX}%` }} />
-      </div>
-      <div className="exit-labels">
-        <span>Stop {Math.round(stop * 100)}c</span>
-        <span>Entry {Math.round(entry * 100)}c</span>
-        <span>Take {Math.round(take * 100)}c</span>
-      </div>
-    </div>
-  );
+  return <div className="exit"><b style={{ left: `${stop * 100}%` }} /><em style={{ left: `${entry * 100}%` }} /><strong style={{ left: `${take * 100}%` }} /><p>{Math.round(stop * 100)}C / {Math.round(entry * 100)}C / {Math.round(take * 100)}C</p></div>;
 }
 
 function FundingGauge({ balance, target }: { balance: number; target: number }) {
   const pct = Math.max(0, Math.min(100, target ? Math.round((balance / target) * 100) : 0));
-  return (
-    <div className="funding-gauge">
-      <div>
-        <span>Funding coverage</span>
-        <strong>{pct}%</strong>
-      </div>
-      <div className="gauge-track">
-        <span style={{ width: `${pct}%` }} />
-      </div>
-      <p>${balance.toFixed(2)} pUSD available for a ${target.toFixed(2)} trade.</p>
-    </div>
-  );
+  return <div className="fund"><span>FUNDING</span><strong>{pct}%</strong><div><i style={{ width: `${pct}%` }} /></div></div>;
 }
 
 function ExposureChart({ exposure, pnl, maxDailyLoss }: { exposure: number; pnl: number; maxDailyLoss: number }) {
-  const riskPct = Math.max(0, Math.min(100, Math.round((Math.abs(Math.min(0, pnl)) / maxDailyLoss) * 100)));
-  return (
-    <div className="exposure-chart">
-      <div className="exposure-stat">
-        <span>Exposure</span>
-        <strong>${exposure.toFixed(2)}</strong>
-      </div>
-      <div className="exposure-stat">
-        <span>PnL</span>
-        <strong className={pnl >= 0 ? "positive" : "negative"}>${pnl.toFixed(2)}</strong>
-      </div>
-      <div className="risk-meter">
-        <span style={{ width: `${riskPct}%` }} />
-      </div>
-    </div>
-  );
+  const risk = Math.max(0, Math.min(100, Math.round((Math.abs(Math.min(0, pnl)) / maxDailyLoss) * 100)));
+  return <div className="exposure"><div><span>EXPOSURE</span><strong>${exposure.toFixed(2)}</strong></div><div><span>PNL</span><strong className={pnl >= 0 ? "good" : "bad"}>${pnl.toFixed(2)}</strong></div><i><b style={{ width: `${risk}%` }} /></i></div>;
 }
 
 function JournalTimeline({ entries }: { entries: JournalEntry[] }) {
-  const counts = entries.slice(0, 12).map((entry) => entry.type.length % 8 + 2);
-  return (
-    <div className="timeline-bars" aria-label="Recent journal activity">
-      {Array.from({ length: 12 }).map((_, index) => (
-        <span key={index} style={{ height: `${(counts[index] || 2) * 8}px` }} />
-      ))}
-    </div>
-  );
+  const bars = entries.slice(0, 18).map((entry) => entry.type.length % 9 + 2);
+  return <div className="bars">{Array.from({ length: 18 }).map((_, index) => <span key={index} style={{ height: `${(bars[index] || 2) * 6}px` }} />)}</div>;
 }
 
 function cents(value?: number) {
-  return value ? `${Math.round(value * 100)}c` : "n/a";
+  return value ? `${Math.round(value * 100)}C` : "--";
 }
 
 function compactNumber(value: number) {
@@ -580,6 +416,6 @@ function compactNumber(value: number) {
 }
 
 function short(value: string) {
-  if (!value || value === "unknown" || value === "not ready") return value;
+  if (!value || value === "unknown" || value === "NO WALLET") return value;
   return value.length > 16 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
 }

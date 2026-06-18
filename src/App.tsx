@@ -3,8 +3,8 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
+  ChevronDown,
   Flame,
-  History,
   KeyRound,
   LockKeyhole,
   LogOut,
@@ -14,17 +14,32 @@ import {
   TrendingUp,
   Wallet,
   XCircle,
-  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { callApi } from "./api";
 import { loadSetting, saveSetting } from "./storage";
+import type { ReactNode } from "react";
 import type { EnvCheck, JournalEntry, Market, Position, WalletStatus } from "./types";
 
 type AuthSession = {
   token: string;
   address: string;
   expiresAt: number;
+};
+
+type BookLevel = {
+  price: number;
+  size: number;
+  total: number;
+};
+
+type TapeRow = {
+  side: string;
+  outcome: string;
+  price: number;
+  size: number;
+  time: string;
+  user: string;
 };
 
 type MarketLive = {
@@ -46,21 +61,6 @@ type MarketLive = {
   };
   trades?: TapeRow[];
   liveErrors?: string[];
-};
-
-type BookLevel = {
-  price: number;
-  size: number;
-  total: number;
-};
-
-type TapeRow = {
-  side: string;
-  outcome: string;
-  price: number;
-  size: number;
-  time: string;
-  user: string;
 };
 
 declare global {
@@ -92,6 +92,7 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const isUnlocked = Boolean(session?.token && session.expiresAt > Date.now() && env?.authenticated);
   const selectedPrice = side === "YES" ? marketLive?.yesPrice : marketLive?.noPrice;
@@ -104,25 +105,24 @@ export default function App() {
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
 
-  const blockedReason = useMemo(() => {
-    if (!isUnlocked) return "UNLOCK";
-    if (!env?.ok) return "SYSTEM";
-    if (!walletArmed) return "ARM";
-    if (!tradeFunded && botCollateral >= depositTopUp) return "DEPOSIT";
-    if (!tradeFunded) return "FUND";
-    if (!selected) return "MARKET";
-    if (!marketLive?.ok) return "BLOCKED";
-    if (!selectedPrice) return "PRICE";
-    return null;
-  }, [botCollateral, depositTopUp, env, isUnlocked, marketLive, selected, selectedPrice, tradeFunded, walletArmed]);
+  const stage = useMemo(() => {
+    if (!isUnlocked) return "unlock";
+    if (!env?.ok) return "system";
+    if (!walletArmed) return "arm";
+    if (!tradeFunded) return "fund";
+    if (!selected || !marketLive?.ok) return "market";
+    return "trade";
+  }, [env?.ok, isUnlocked, marketLive?.ok, selected, tradeFunded, walletArmed]);
 
-  const steps = useMemo(() => [
-    { label: "Unlock", done: isUnlocked, detail: session?.address ? short(session.address) : "Sign once" },
-    { label: "Fund", done: tradeFunded, detail: tradeFunded ? money(wallet?.pusdBalance || 0) : walletArmed ? `Need ${money(depositTopUp)}` : "Arm first" },
-    { label: "Market", done: Boolean(selected && marketLive?.ok), detail: selected ? cents(selectedPrice) : "Pick one" },
-    { label: "Trade", done: Boolean(!blockedReason), detail: blockedReason ? blockedReason.toLowerCase() : "Ready" },
-    { label: "Manage", done: positions.length > 0, detail: positions.length ? `${positions.length} open` : "Flat" },
-  ], [blockedReason, depositTopUp, isUnlocked, marketLive, positions.length, selected, selectedPrice, session?.address, tradeFunded, wallet?.pusdBalance, walletArmed]);
+  const stepItems = [
+    { key: "unlock", label: "Unlock", done: isUnlocked },
+    { key: "arm", label: "Arm", done: walletArmed },
+    { key: "fund", label: "Fund", done: tradeFunded },
+    { key: "market", label: "Market", done: Boolean(selected && marketLive?.ok) },
+    { key: "trade", label: "Trade", done: stage === "trade" },
+  ];
+
+  const hero = heroCopy(stage, wallet, selected, selectedPrice);
 
   const run = useCallback(async <T,>(label: string, task: () => Promise<T>) => {
     setBusy(label);
@@ -144,6 +144,7 @@ export default function App() {
     if (session?.token && !next.authenticated) clearSession(setSession);
     return next;
   }, [session?.token]);
+
   const refreshWallet = useCallback(async () => setWallet(await callApi<WalletStatus>("wallet-status")), []);
   const refreshPositions = useCallback(async () => setPositions((await callApi<{ ok: true; positions: Position[] }>("positions")).positions), []);
   const refreshJournal = useCallback(async () => setJournal((await callApi<{ ok: true; entries: JournalEntry[] }>("journal")).entries), []);
@@ -159,10 +160,7 @@ export default function App() {
   }, [refreshEnv, refreshProtected, session?.token]);
 
   const loadMarketLive = useCallback(async (market: Market | null, nextSide = side) => {
-    if (!market) {
-      setMarketLive(null);
-      return;
-    }
+    if (!market) return setMarketLive(null);
     const live = await callApi<MarketLive>("market-live", { marketId: market.id, side: nextSide });
     setMarketLive(live);
   }, [side]);
@@ -172,9 +170,8 @@ export default function App() {
     await run("scan", async () => {
       const data = await callApi<{ ok: true; markets: Market[] }>(`search-markets?q=${encodeURIComponent(keyword)}`);
       setMarkets(data.markets);
-      if (!selected && data.markets[0] && !data.markets[0].disabledReason) {
-        await selectMarket(data.markets[0]);
-      }
+      const firstTradeable = data.markets.find((market) => !market.disabledReason);
+      if ((!selected || selected.disabledReason) && firstTradeable) await selectMarket(firstTradeable);
       setNotice(`${data.markets.length} market${data.markets.length === 1 ? "" : "s"} found`);
     });
   };
@@ -270,11 +267,10 @@ export default function App() {
     if (!walletArmed) return setupWallet();
     if (!tradeFunded && botCollateral >= depositTopUp) return deposit();
     if (!tradeFunded) {
-      setNotice("Send POL to the bot wallet, then Sync. The app swaps only what it needs at deposit time.");
+      setNotice("Send POL to the bot wallet, then Sync. The app swaps only what it needs.");
       return run("refresh", refreshProtected);
     }
-    if (!selected) return searchMarkets();
-    if (!marketLive?.ok) return run("market", () => loadMarketLive(selected));
+    if (!selected || !marketLive?.ok) return searchMarkets();
     return buy();
   };
 
@@ -284,7 +280,6 @@ export default function App() {
 
   useEffect(() => {
     if (markets.length === 0 && !storedSelected) searchMarkets().catch(() => undefined);
-    // Run once on boot so the market explorer is not empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -318,27 +313,22 @@ export default function App() {
   }, [isUnlocked, pollExits, polling, positions.length, tradeFunded]);
 
   return (
-    <main className="terminal">
-      <header className="command-bar">
+    <main className="app-shell">
+      <header className="app-top">
         <div className="brand-block">
-          <div className="brand-mark"><Bot size={18} /></div>
+          <div className="brand-mark"><Bot size={19} /></div>
           <div>
             <strong>Polymarket Wizard</strong>
-            <span>{isUnlocked ? `Unlocked ${short(session?.address || "")}` : "View-only until the Wizard wallet signs in"}</span>
+            <span>{isUnlocked ? short(session?.address || "") : "Guarded trading console"}</span>
           </div>
         </div>
-        <div className="command-status">
-          <StatusPill label="Env" value={env?.ok ? "Ready" : "Locked"} good={Boolean(env?.ok)} />
-          <StatusPill label="Wallet" value={!isUnlocked ? "Locked" : tradeFunded ? "Ready" : walletArmed ? "Fund" : "Arm"} good={isUnlocked && tradeFunded} />
-          <StatusPill label="pUSD" value={isUnlocked ? money(wallet?.pusdBalance || 0) : "--"} good={isUnlocked && tradeFunded} />
-        </div>
-        <div className="command-actions">
+        <div className="top-actions">
+          <button onClick={() => run("sync", refreshAll)} disabled={Boolean(busy)}><RefreshCcw size={15} />Sync</button>
           {isUnlocked ? (
             <button onClick={() => clearSession(setSession)}><LogOut size={15} />Lock</button>
           ) : (
-            <button className="unlock-button" onClick={connectWallet}><KeyRound size={15} />Unlock</button>
+            <button className="green-button" onClick={connectWallet}><KeyRound size={15} />Unlock</button>
           )}
-          <button onClick={() => run("sync", refreshAll)} disabled={Boolean(busy)}><RefreshCcw size={15} />Sync</button>
         </div>
       </header>
 
@@ -349,119 +339,126 @@ export default function App() {
         </section>
       )}
 
-      <section className="wizard-rail">
-        {steps.map((step, index) => (
-          <article className={step.done ? "rail-step done" : "rail-step"} key={step.label}>
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <strong>{step.label}</strong>
-            <p>{step.detail}</p>
-          </article>
+      <section className="hero-card">
+        <div>
+          <span className="eyebrow">{hero.eyebrow}</span>
+          <h1>{hero.title}</h1>
+          <p>{hero.body}</p>
+        </div>
+        <button className="primary-action" onClick={runPrimary} disabled={Boolean(busy)}>
+          {busy ? busyLabel(busy) : hero.action}
+          <ArrowRight size={18} />
+        </button>
+      </section>
+
+      <section className="progress-strip">
+        {stepItems.map((step, index) => (
+          <div className={step.done ? "progress-step done" : step.key === stage ? "progress-step active" : "progress-step"} key={step.key}>
+            <b>{index + 1}</b>
+            <span>{step.label}</span>
+          </div>
         ))}
       </section>
 
-      <section className="workbench">
-        <aside className="panel setup-panel">
-          <Title icon={ShieldCheck} k="CONTROL" v={isUnlocked ? "Armed by signature" : "Locked"} />
-          <LockedNotice locked={!isUnlocked} connect={connectWallet} />
-          <WalletStack wallet={wallet} env={env} unlocked={isUnlocked} />
-          <div className="control-grid">
-            <button onClick={setupWallet} disabled={!isUnlocked || Boolean(busy)}><LockKeyhole size={16} />Arm</button>
-            <button onClick={deposit} disabled={!isUnlocked || !walletArmed || Boolean(busy)}><ArrowDownToLine size={16} />Deposit {money(depositAmount)}</button>
-            <button onClick={withdraw} disabled={!isUnlocked || !walletArmed || Boolean(busy)}><Wallet size={16} />Withdraw {money(amount)}</button>
+      <section className="guided-layout">
+        <aside className="side-card">
+          <WalletSummary
+            env={env}
+            wallet={wallet}
+            unlocked={isUnlocked}
+            walletArmed={walletArmed}
+            tradeFunded={tradeFunded}
+          />
+          <div className="side-actions">
+            <button onClick={setupWallet} disabled={!isUnlocked || walletArmed || Boolean(busy)}><LockKeyhole size={16} />Arm wallet</button>
+            <button onClick={deposit} disabled={!isUnlocked || !walletArmed || tradeFunded || Boolean(busy)}><ArrowDownToLine size={16} />Deposit {money(depositAmount)}</button>
+            <button onClick={withdraw} disabled={!isUnlocked || !walletArmed || Boolean(busy)}><Wallet size={16} />Withdraw</button>
           </div>
         </aside>
 
-        <section className="panel markets-panel">
-          <Title icon={Search} k="MARKETS" v={markets.length ? `${markets.length} found` : "Search"} />
-          <div className="search-row">
-            <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} aria-label="Search markets" />
-            <button onClick={searchMarkets} disabled={busy === "scan"}><Search size={16} /></button>
-          </div>
-          <div className="market-list">
-            {markets.length === 0 && <Empty text="Search a keyword" />}
-            {markets.map((market) => (
-              <button key={market.id} className={selected?.id === market.id ? "market selected" : "market"} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
-                {market.image && <img src={market.image} alt="" />}
-                <strong>{market.question}</strong>
-                <span>{market.disabledReason || `$${compactNumber(market.liquidity)} liq`}</span>
-              </button>
-            ))}
-          </div>
+        <section className="task-card">
+          {stage === "unlock" && <UnlockPanel connect={connectWallet} />}
+          {stage === "system" && <SystemPanel env={env} refresh={() => run("system", refreshEnv)} />}
+          {stage === "arm" && <ArmPanel setupWallet={setupWallet} wallet={wallet} />}
+          {stage === "fund" && (
+            <FundPanel
+              wallet={wallet}
+              depositAmount={depositAmount}
+              deposit={deposit}
+              refresh={() => run("sync", refreshAll)}
+            />
+          )}
+          {stage === "market" && (
+            <MarketPicker
+              keyword={keyword}
+              setKeyword={setKeyword}
+              searchMarkets={searchMarkets}
+              busy={busy}
+              markets={markets}
+              selected={selected}
+              selectMarket={selectMarket}
+            />
+          )}
+          {stage === "trade" && (
+            <TradePanel
+              selected={selected}
+              marketLive={marketLive}
+              side={side}
+              setSide={setSide}
+              amount={amount}
+              setAmount={setAmount}
+              selectedPrice={selectedPrice}
+              tradeCollateralNeeded={tradeCollateralNeeded}
+              stopLoss={stopLoss}
+              setStopLoss={setStopLoss}
+              takeProfit={takeProfit}
+              setTakeProfit={setTakeProfit}
+              buy={buy}
+              busy={busy}
+              openMarketPicker={() => {
+                setSelected(null);
+                setMarketLive(null);
+              }}
+            />
+          )}
         </section>
+      </section>
 
-        <section className="panel live-panel">
-          <Title icon={TrendingUp} k="LIVE MARKET" v={marketLive?.ok ? "CLOB data" : "Waiting"} />
-          <MarketHeader market={selected} live={marketLive} />
-          <LiveChart history={marketLive?.history || []} yes={marketLive?.yesPrice} no={marketLive?.noPrice} />
-          <div className="market-data-grid">
-            <DepthBook side={side} levels={marketLive?.orderBook} />
-            <TradeTape rows={marketLive?.trades || []} />
-          </div>
-          {marketLive?.liveErrors?.length ? <div className="inline-warning">{marketLive.liveErrors.join(" / ")}</div> : null}
-        </section>
-
-        <aside className="panel order-ticket">
-          <Title icon={Flame} k="ORDER" v={side} />
-          <div className="side-row">
-            <button className={side === "YES" ? "yes active" : "yes"} onClick={() => setSide("YES")}>Yes <span>{cents(marketLive?.yesPrice)}</span></button>
-            <button className={side === "NO" ? "no active" : "no"} onClick={() => setSide("NO")}>No <span>{cents(marketLive?.noPrice)}</span></button>
-          </div>
-          <MoneyInput label="Amount" value={amount} setValue={(value) => setAmount(Math.max(1.1, value))} />
-          <div className="quick-sizes">
-            {[1.1, 2].map((value) => (
-              <button key={value} className={amount === value ? "active" : ""} onClick={() => setAmount(value)}>{money(value)}</button>
-            ))}
-          </div>
-          <div className="quote-strip">
-            <Read label="Limit" value={cents(selectedPrice)} />
-            <Read label="Shares" value={selectedPrice ? (amount / selectedPrice).toFixed(2) : "--"} />
-            <Read label="Fee buffer" value={money(tradeCollateralNeeded - amount)} />
-          </div>
-          <div className="risk-row">
-            <NumberBox label="Stop" suffix="%" value={stopLoss} setValue={setStopLoss} />
-            <NumberBox label="Take" suffix="%" value={takeProfit} setValue={setTakeProfit} />
-          </div>
-          <button className="prime action" onClick={runPrimary} disabled={Boolean(busy)}>
-            {isUnlocked ? <Flame size={18} /> : <KeyRound size={18} />}
-            {busy ? busy.toUpperCase() : primaryLabel(blockedReason, side, amount)}
-            <ArrowRight size={18} />
-          </button>
-          <div className="guardline">{marketLive?.ok ? "Guardrails pass" : marketLive?.reason || "Select a live market"}</div>
-        </aside>
-
-        <section className="panel positions-panel">
-          <Title icon={Wallet} k="POSITIONS" v={isUnlocked ? `${positions.length} open` : "Locked"} />
-          <div className="performance-row">
+      <section className="below-grid">
+        <section className="panel positions-card">
+          <PanelTitle icon={<Wallet size={16} />} label="Positions" value={isUnlocked ? `${positions.length} open` : "Locked"} />
+          <div className="metric-row">
             <Metric label="Exposure" value={isUnlocked ? money(exposure) : "--"} />
             <Metric label="P&L" value={isUnlocked ? signedMoney(pnl) : "--"} tone={pnl >= 0 ? "good" : "bad"} />
-            <Metric label="Bot POL" value={isUnlocked ? `${(wallet?.polBalance || 0).toFixed(2)}` : "--"} />
-            <Metric label="USDC.e" value={isUnlocked ? money(wallet?.usdcBalance || 0) : "--"} />
+            <Metric label="pUSD" value={isUnlocked ? money(wallet?.pusdBalance || 0) : "--"} />
           </div>
-          <div className="positions">
+          <div className="position-list">
             {!isUnlocked && <Empty text="Unlock to view positions" />}
-            {isUnlocked && positions.length === 0 && <Empty text="Flat" />}
+            {isUnlocked && positions.length === 0 && <Empty text="No open positions" />}
             {positions.map((position) => (
-              <article className="position" key={position.id}>
-                <strong>{position.question}</strong>
-                <span>{position.side} / {position.shares.toFixed(2)} shares / {cents(position.currentPrice)}</span>
+              <article className="position-row" key={position.id}>
+                <div>
+                  <strong>{position.question}</strong>
+                  <span>{position.side} / {position.shares.toFixed(2)} shares / {cents(position.currentPrice)}</span>
+                </div>
                 <b className={position.pnl >= 0 ? "good" : "bad"}>{signedMoney(position.pnl)}</b>
                 <button onClick={() => sell(position)}>Sell</button>
               </article>
             ))}
           </div>
-          <label className="toggle">
+          <label className="toggle-row">
             <input type="checkbox" checked={polling} disabled={!isUnlocked || !tradeFunded || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
             <span>Auto-check stop / take-profit every 60s</span>
           </label>
         </section>
 
-        <section className="panel activity-panel">
-          <Title icon={History} k="ACTIVITY" v={isUnlocked ? String(journal.length) : "Locked"} />
-          <div className="journal">
-            {!isUnlocked && <Empty text="Unlock to view trade log" />}
+        <section className="panel journal-card">
+          <PanelTitle icon={<ShieldCheck size={16} />} label="Activity" value={isUnlocked ? String(journal.length) : "Locked"} />
+          <div className="journal-list">
+            {!isUnlocked && <Empty text="Unlock to view activity" />}
             {isUnlocked && journal.length === 0 && <Empty text="No activity yet" />}
-            {journal.map((entry) => (
-              <div className="row" key={entry.id}>
+            {journal.slice(0, 8).map((entry) => (
+              <div className="journal-row" key={entry.id}>
                 <span>{new Date(entry.at).toLocaleTimeString()}</span>
                 <strong>{entry.type}</strong>
                 <p>{entry.message}</p>
@@ -470,62 +467,263 @@ export default function App() {
           </div>
         </section>
       </section>
+
+      {selected && (
+        <section className="details-card">
+          <button className="details-toggle" onClick={() => setDetailsOpen((value) => !value)}>
+            <span>Market details</span>
+            <ChevronDown className={detailsOpen ? "open" : ""} size={17} />
+          </button>
+          {detailsOpen && (
+            <div className="details-grid">
+              <LiveChart history={marketLive?.history || []} yes={marketLive?.yesPrice} no={marketLive?.noPrice} />
+              <DepthBook side={side} levels={marketLive?.orderBook} />
+              <TradeTape rows={marketLive?.trades || []} />
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }
 
-function Title({ icon: Icon, k, v }: { icon: LucideIcon; k: string; v: string }) {
-  return <div className="title"><Icon size={17} /><span>{k}</span><strong>{v}</strong></div>;
+function heroCopy(stage: string, wallet: WalletStatus | null, selected: Market | null, selectedPrice?: number) {
+  if (stage === "unlock") return {
+    eyebrow: "Step 1",
+    title: "Unlock the bot wallet",
+    body: "Connect the wallet that owns this Wizard. Viewing is open, but funded actions stay locked until this wallet signs.",
+    action: "Unlock wallet",
+  };
+  if (stage === "system") return {
+    eyebrow: "System check",
+    title: "Configuration needs attention",
+    body: "The app is missing required server-side configuration. Sync after fixing the Netlify environment.",
+    action: "Check system",
+  };
+  if (stage === "arm") return {
+    eyebrow: "Step 2",
+    title: "Arm the deposit wallet",
+    body: "Deploy the Polymarket deposit wallet and set the approvals needed for trading.",
+    action: "Arm wallet",
+  };
+  if (stage === "fund") return {
+    eyebrow: "Step 3",
+    title: "Fund the trading wallet",
+    body: wallet?.reason || "Send POL to the bot wallet, then deposit the needed collateral into the Polymarket wallet.",
+    action: "Deposit pUSD",
+  };
+  if (stage === "market") return {
+    eyebrow: "Step 4",
+    title: "Choose a tradeable market",
+    body: "Search a keyword, pick an open market, then review live prices before placing a trade.",
+    action: "Search markets",
+  };
+  return {
+    eyebrow: "Ready",
+    title: selected?.question || "Ready to trade",
+    body: `${selectedPrice ? `Current ${cents(selectedPrice)} ${selected ? "price" : ""}.` : "Live quote loaded."} Pick YES or NO, size the trade, then place the order.`,
+    action: "Place trade",
+  };
 }
 
-function LockedNotice({ locked, connect }: { locked: boolean; connect: () => void }) {
-  if (!locked) return null;
+function WalletSummary({ env, wallet, unlocked, walletArmed, tradeFunded }: {
+  env: EnvCheck | null;
+  wallet: WalletStatus | null;
+  unlocked: boolean;
+  walletArmed: boolean;
+  tradeFunded: boolean;
+}) {
   return (
-    <div className="locked-notice">
-      <KeyRound size={18} />
-      <div>
-        <strong>Connect the Wizard wallet</strong>
-        <p>Viewing is open. Trading controls require a signed wallet session.</p>
+    <div className="wallet-summary">
+      <PanelTitle icon={<ShieldCheck size={16} />} label="Status" value={unlocked ? "Unlocked" : "Locked"} />
+      <div className="status-grid">
+        <StatusTile label="Env" value={env?.ok ? "Ready" : "Check"} good={Boolean(env?.ok)} />
+        <StatusTile label="Wallet" value={!unlocked ? "Locked" : walletArmed ? "Armed" : "Needs arm"} good={unlocked && walletArmed} />
+        <StatusTile label="Funds" value={unlocked ? money(wallet?.pusdBalance || 0) : "--"} good={unlocked && tradeFunded} />
       </div>
-      <button onClick={connect}>Unlock</button>
+      {unlocked && (
+        <div className="wallet-lines">
+          <span>Bot <b>{short(wallet?.botAddress || "")}</b></span>
+          <span>POL quote <b>{money(wallet?.polUsdcEstimate || 0)}</b></span>
+          <span>USDC.e <b>{money(wallet?.usdcBalance || 0)}</b></span>
+        </div>
+      )}
     </div>
   );
 }
 
-function StatusPill({ label, value, good }: { label: string; value: string; good?: boolean }) {
-  return <div className={good === undefined ? "status-pill" : good ? "status-pill good-pill" : "status-pill bad-pill"}><span>{label}</span><strong>{value}</strong></div>;
+function UnlockPanel({ connect }: { connect: () => void }) {
+  return (
+    <div className="simple-panel">
+      <KeyRound size={34} />
+      <h2>Start with one signature</h2>
+      <p>The app will ask your wallet to sign a login message. It does not spend funds.</p>
+      <button className="primary-action" onClick={connect}>Unlock wallet <ArrowRight size={18} /></button>
+    </div>
+  );
+}
+
+function SystemPanel({ env, refresh }: { env: EnvCheck | null; refresh: () => void }) {
+  return (
+    <div className="simple-panel">
+      <XCircle size={34} />
+      <h2>Missing configuration</h2>
+      <p>{env?.missing?.length ? env.missing.join(", ") : "Run a sync after checking Netlify environment variables."}</p>
+      <button className="primary-action" onClick={refresh}>Sync again <RefreshCcw size={18} /></button>
+    </div>
+  );
+}
+
+function ArmPanel({ setupWallet, wallet }: { setupWallet: () => void; wallet: WalletStatus | null }) {
+  return (
+    <div className="simple-panel">
+      <LockKeyhole size={34} />
+      <h2>Prepare the Polymarket wallet</h2>
+      <p>{wallet?.reason || "This deploys the deposit wallet and sets max approvals so future trades do not keep asking for setup."}</p>
+      <button className="primary-action" onClick={setupWallet}>Arm wallet <ArrowRight size={18} /></button>
+    </div>
+  );
+}
+
+function FundPanel({ wallet, depositAmount, deposit, refresh }: {
+  wallet: WalletStatus | null;
+  depositAmount: number;
+  deposit: () => void;
+  refresh: () => void;
+}) {
+  return (
+    <div className="fund-panel">
+      <div>
+        <span className="eyebrow">Bot wallet</span>
+        <h2>{short(wallet?.botAddress || "No wallet")}</h2>
+        <p>Send POL here, sync, then deposit only what the next trade needs.</p>
+      </div>
+      <div className="metric-row">
+        <Metric label="POL quote" value={money(wallet?.polUsdcEstimate || 0)} />
+        <Metric label="USDC.e" value={money(wallet?.usdcBalance || 0)} />
+        <Metric label="Deposit pUSD" value={money(wallet?.pusdBalance || 0)} />
+      </div>
+      <div className="button-row">
+        <button onClick={refresh}><RefreshCcw size={16} />Sync</button>
+        <button className="green-button" onClick={deposit}>Deposit {money(depositAmount)} <ArrowRight size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
+function MarketPicker({ keyword, setKeyword, searchMarkets, busy, markets, selected, selectMarket }: {
+  keyword: string;
+  setKeyword: (value: string) => void;
+  searchMarkets: () => void;
+  busy: string | null;
+  markets: Market[];
+  selected: Market | null;
+  selectMarket: (market: Market) => void;
+}) {
+  return (
+    <div className="market-picker">
+      <div className="search-box">
+        <Search size={18} />
+        <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} placeholder="Search bitcoin, Iran, elections..." />
+        <button onClick={searchMarkets} disabled={busy === "scan"}>Search</button>
+      </div>
+      <div className="market-results">
+        {markets.length === 0 && <Empty text="Search a market keyword" />}
+        {markets.map((market) => (
+          <button key={market.id} className={selected?.id === market.id ? "market-card selected" : "market-card"} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
+            {market.image && <img src={market.image} alt="" />}
+            <div>
+              <strong>{market.question}</strong>
+              <span>{market.disabledReason || `${money(market.liquidity)} liquidity`}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TradePanel(props: {
+  selected: Market | null;
+  marketLive: MarketLive | null;
+  side: "YES" | "NO";
+  setSide: (side: "YES" | "NO") => void;
+  amount: number;
+  setAmount: (amount: number) => void;
+  selectedPrice?: number;
+  tradeCollateralNeeded: number;
+  stopLoss: number;
+  setStopLoss: (value: number) => void;
+  takeProfit: number;
+  setTakeProfit: (value: number) => void;
+  buy: () => void;
+  busy: string | null;
+  openMarketPicker: () => void;
+}) {
+  return (
+    <div className="trade-flow">
+      <div className="selected-market-card">
+        {props.selected?.image && <img src={props.selected.image} alt="" />}
+        <div>
+          <span className="eyebrow">Selected market</span>
+          <h2>{props.selected?.question}</h2>
+          <p>{money(props.selected?.liquidity || 0)} liquidity / spread {props.marketLive?.spreadCents ?? "--"}c</p>
+        </div>
+        <button onClick={props.openMarketPicker}>Change</button>
+      </div>
+
+      <div className="side-picker">
+        <button className={props.side === "YES" ? "yes active" : "yes"} onClick={() => props.setSide("YES")}>YES <span>{cents(props.marketLive?.yesPrice)}</span></button>
+        <button className={props.side === "NO" ? "no active" : "no"} onClick={() => props.setSide("NO")}>NO <span>{cents(props.marketLive?.noPrice)}</span></button>
+      </div>
+
+      <div className="trade-form">
+        <MoneyInput label="Trade amount" value={props.amount} setValue={(value) => props.setAmount(Math.max(1.1, value))} />
+        <div className="quick-row">
+          {[1.1, 2].map((value) => (
+            <button key={value} className={props.amount === value ? "active" : ""} onClick={() => props.setAmount(value)}>{money(value)}</button>
+          ))}
+        </div>
+        <div className="metric-row">
+          <Metric label="Limit" value={cents(props.selectedPrice)} />
+          <Metric label="Shares" value={props.selectedPrice ? (props.amount / props.selectedPrice).toFixed(2) : "--"} />
+          <Metric label="Buffer" value={money(props.tradeCollateralNeeded - props.amount)} />
+        </div>
+        <div className="risk-row">
+          <NumberInput label="Stop loss" suffix="%" value={props.stopLoss} setValue={props.setStopLoss} />
+          <NumberInput label="Take profit" suffix="%" value={props.takeProfit} setValue={props.setTakeProfit} />
+        </div>
+        <button className="primary-action trade-button" onClick={props.buy} disabled={Boolean(props.busy)}>
+          {props.busy ? busyLabel(props.busy) : `Buy ${props.side} ${money(props.amount)}`}
+          <ArrowRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PanelTitle({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return <div className="panel-title">{icon}<span>{label}</span><strong>{value}</strong></div>;
+}
+
+function StatusTile({ label, value, good }: { label: string; value: string; good?: boolean }) {
+  return <div className={good ? "status-tile good" : "status-tile"}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function Metric({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return <article className={`metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong></article>;
+  return <div className={`metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function WalletStack({ wallet, env, unlocked }: { wallet: WalletStatus | null; env: EnvCheck | null; unlocked: boolean }) {
-  const rows = unlocked ? [
-    ["System", env?.ok ? "Ready" : "Locked", env?.ok],
-    ["Bot", short(wallet?.botAddress || env?.botAddress || ""), Boolean(wallet?.botAddress || env?.botAddress)],
-    ["Deposit", wallet?.depositWalletExists ? short(wallet.depositWallet || "") : "Not armed", wallet?.depositWalletExists],
-    ["Approvals", wallet?.approvalsReady ? "Maxed" : "Missing", wallet?.approvalsReady],
-    ["Deposit pUSD", money(wallet?.pusdBalance || 0), wallet?.readyToTrade],
-  ] as const : [
-    ["System", env?.ok ? "Ready" : "Locked", env?.ok],
-    ["Mode", "View-only", false],
-    ["Wallet", "Locked", false],
-  ] as const;
-
-  return <div className="wallet-rows">{rows.map(([label, value, good]) => <div className="kv" key={label}><span>{label}</span><strong className={good ? "good" : undefined}>{value}</strong></div>)}{unlocked && wallet?.reason && <div className="reason">{wallet.reason}</div>}</div>;
+function MoneyInput({ label, value, setValue }: { label: string; value: number; setValue: (value: number) => void }) {
+  return <label className="money-input"><span>{label}</span><div><b>$</b><input type="number" min="1.1" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div></label>;
 }
 
-function MarketHeader({ market, live }: { market: Market | null; live: MarketLive | null }) {
-  return (
-    <div className="market-head">
-      {market?.image && <img src={market.image} alt="" />}
-      <div>
-        <h1>{market?.question || "Search and select one live market"}</h1>
-        <p>{market ? `$${compactNumber(market.liquidity)} liquidity / $${compactNumber(market.volume)} volume / spread ${live?.spreadCents ?? "--"}c` : "The chart, order book, and tape load after selection."}</p>
-      </div>
-    </div>
-  );
+function NumberInput({ label, value, setValue, suffix = "" }: { label: string; value: number; setValue: (value: number) => void; suffix?: string }) {
+  return <label className="number-input"><span>{label}</span><div><input type="number" min="0" step="1" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="empty">{text}</div>;
 }
 
 function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; yes?: number; no?: number }) {
@@ -542,13 +740,13 @@ function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; 
   }).join(" ");
 
   return (
-    <div className="price-card">
-      <div className="price-tabs"><span>YES {cents(yes)}</span><span>NO {cents(no)}</span></div>
+    <div className="chart-card">
+      <div className="chart-tabs"><span>YES {cents(yes)}</span><span>NO {cents(no)}</span></div>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="live CLOB price history">
         <path d={`${d} L 100 100 L 0 100 Z`} className="chart-fill" />
         <path d={d} className="chart-line" />
       </svg>
-      {fallback && <p className="chart-empty">No recent CLOB history returned yet.</p>}
+      {fallback && <p>No recent price history returned.</p>}
     </div>
   );
 }
@@ -557,8 +755,8 @@ function DepthBook({ side, levels }: { side: "YES" | "NO"; levels?: MarketLive["
   const bids = levels?.bids || [];
   const asks = levels?.asks || [];
   return (
-    <div className="depth-card">
-      <div className="mini-title">Order book / {side}</div>
+    <div className="book-card">
+      <PanelTitle icon={<TrendingUp size={16} />} label="Order book" value={side} />
       <BookSide label="Asks" rows={asks} tone="bad" />
       <BookSide label="Bids" rows={bids} tone="good" />
       {!bids.length && !asks.length && <Empty text="No order book returned" />}
@@ -584,7 +782,7 @@ function BookSide({ label, rows, tone }: { label: string; rows: BookLevel[]; ton
 function TradeTape({ rows }: { rows: TapeRow[] }) {
   return (
     <div className="tape-card">
-      <div className="mini-title">Live activity</div>
+      <PanelTitle icon={<Flame size={16} />} label="Live activity" value={String(rows.length)} />
       {rows.length === 0 && <Empty text="No recent trades" />}
       {rows.slice(0, 8).map((row, index) => (
         <div className="tape-row" key={`${row.time}-${index}`}>
@@ -596,34 +794,6 @@ function TradeTape({ rows }: { rows: TapeRow[] }) {
       ))}
     </div>
   );
-}
-
-function MoneyInput({ label, value, setValue }: { label: string; value: number; setValue: (value: number) => void }) {
-  return <label className="money-input"><span>{label}</span><div><b>$</b><input type="number" min="1.1" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div></label>;
-}
-
-function NumberBox({ label, value, setValue, suffix = "" }: { label: string; value: number; setValue: (value: number) => void; suffix?: string }) {
-  return <label className="num"><span>{label}</span><div><input type="number" min="0" step="1" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
-}
-
-function Read({ label, value }: { label: string; value: string }) {
-  return <div className="read"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function Empty({ text }: { text: string }) {
-  return <div className="empty">{text}</div>;
-}
-
-function primaryLabel(blockedReason: string | null, side: "YES" | "NO", amount: number) {
-  if (blockedReason === "UNLOCK") return "Unlock to trade";
-  if (blockedReason === "SYSTEM") return "Check system";
-  if (blockedReason === "ARM") return "Arm deposit wallet";
-  if (blockedReason === "DEPOSIT") return "Deposit pUSD";
-  if (blockedReason === "FUND") return "Fund bot wallet";
-  if (blockedReason === "MARKET") return "Choose market";
-  if (blockedReason === "BLOCKED") return "Market blocked";
-  if (blockedReason === "PRICE") return "Waiting for price";
-  return `Buy ${side} ${money(amount)}`;
 }
 
 function saveSession(session: AuthSession) {
@@ -648,17 +818,15 @@ function clearSession(setSession: (session: AuthSession | null) => void) {
   setSession(null);
 }
 
+function busyLabel(value: string) {
+  return `${value[0]?.toUpperCase() || ""}${value.slice(1)}...`;
+}
+
 function cents(value?: number | null) {
   if (!value) return "--";
   const scaled = value * 100;
   const rounded = Math.round(scaled);
   return Math.abs(scaled - rounded) < 0.05 ? `${rounded}c` : `${scaled.toFixed(1)}c`;
-}
-
-function compactNumber(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return value.toFixed(0);
 }
 
 function money(value: number) {

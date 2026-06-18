@@ -11,7 +11,12 @@ export async function callApi<T>(name: string, body?: unknown): Promise<T> {
   });
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: { error?: string } = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error("API functions are not available. Run with Netlify dev or open the deployed Netlify app.");
+  }
 
   if (!res.ok) {
     throw new Error(data.error || `${res.status} ${res.statusText}`);

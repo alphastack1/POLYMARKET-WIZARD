@@ -1,75 +1,125 @@
-# Polymarket Trading Wizard Build Guide
+# Polymarket Wizard: Visual Build Guide
 
-This guide shows the shortest reliable path to a guarded Polymarket trading app:
+This guide explains how to build a basic but reliable Polymarket trading app:
 
-- Search live Polymarket markets.
-- Fund one server-side trading wallet with POL.
-- Convert only the needed POL into trading collateral.
-- Deploy a Polymarket deposit wallet.
-- Place guarded YES/NO trades.
-- Sell positions manually.
-- Poll stop-loss and take-profit rules while the app is open.
+- One dedicated bot wallet.
+- One Netlify app.
+- Server-side Netlify Functions for all private trading actions.
+- Public frontend for search, charts, and the guided trade flow.
+- Signed wallet login before any action can move funds or place orders.
 
-The design is intentionally simple: one hot wallet, one Netlify app, one trading console.
+The UI can be redesigned however you want. The important part is the backend flow: wallet auth, environment setup, Polymarket Builder/Relayer credentials, deposit wallet setup, funding, trading, selling, and withdrawal.
 
-## What You Need
-
-- A GitHub account.
-- A Netlify account.
-- A Polymarket account.
-- Rabby or MetaMask.
-- A fresh wallet used only for this bot.
-- Enough POL on Polygon for gas and testing. For a first test, send enough POL to cover a small trade plus gas. The app shows the live POL-to-USD quote before depositing.
-- Node.js 20+.
-
-Do not use a personal wallet that holds meaningful funds. This project uses a server-side hot wallet, so treat it like an automation wallet with limited capital.
-
-## App Flow
+## The Whole App In One Picture
 
 ```mermaid
 flowchart LR
-  A["Create bot wallet"] --> B["Create Polymarket Builder access"]
-  B --> C["Create CLOB API credentials"]
-  C --> D["Set Netlify environment variables"]
-  D --> E["Deploy app"]
-  E --> F["Unlock with bot wallet signature"]
-  F --> G["Send POL to bot wallet"]
-  G --> H["Arm deposit wallet"]
-  H --> I["Deposit pUSD"]
-  I --> J["Search market"]
-  J --> K["Buy or sell"]
+  User["User opens app"] --> View["Public market viewer"]
+  View --> Unlock["Sign wallet login"]
+  Unlock --> Session["Short-lived session token"]
+  Session --> Bot["Server bot wallet"]
+  Bot --> Relayer["Polymarket Relayer"]
+  Relayer --> DepositWallet["Polymarket deposit wallet"]
+  Bot --> Swap["POL -> USDC.e swap"]
+  Swap --> Onramp["USDC.e -> pUSD wrap"]
+  Onramp --> DepositWallet
+  DepositWallet --> CLOB["Polymarket CLOB"]
+  CLOB --> Position["YES/NO position"]
+  Position --> Sell["Sell / exit"]
+  DepositWallet --> Withdraw["Withdraw pUSD back to bot wallet"]
 ```
 
-## 1. Create the Bot Wallet
+The core idea is simple: the browser never receives private keys. The browser asks Netlify Functions to do private work, and the Functions only obey requests from the authorized wallet session.
 
-Create a fresh wallet in Rabby or MetaMask. Save the seed phrase somewhere secure.
+## What The User Sees
 
-This wallet is the only wallet that should control the app. The app requires this same wallet to sign in before it allows deposits, buys, sells, withdrawals, or bot account reads.
-
-Store the seed phrase in local `.env.local` during development:
-
-```txt
-BOT_MNEMONIC="your twelve or twenty-four words"
-BOT_ACCOUNT_INDEX=0
+```mermaid
+stateDiagram-v2
+  [*] --> Unlock
+  Unlock --> ArmWallet: wallet signature accepted
+  ArmWallet --> FundWallet: deposit wallet deployed + approvals set
+  FundWallet --> PickMarket: pUSD balance available
+  PickMarket --> ReviewTrade: live market selected
+  ReviewTrade --> PlaceOrder: user presses Buy YES/NO
+  PlaceOrder --> TrackPosition: CLOB accepts order
+  TrackPosition --> SellOrWithdraw
+  SellOrWithdraw --> PickMarket
 ```
 
-Never commit `.env.local`.
+The frontend should feel like a guided journey, not a giant control panel. At each step there should be one obvious next action.
 
-## 2. Log In To Polymarket With The Bot Wallet
+## What Runs Where
 
-Open Polymarket and connect the bot wallet.
+```mermaid
+flowchart TB
+  subgraph Browser["Browser / React"]
+    UI["Guided UI"]
+    Search["Market search"]
+    Chart["Live price chart"]
+    Ticket["Order ticket"]
+    Local["Local settings"]
+  end
+
+  subgraph Netlify["Netlify Functions"]
+    Auth["auth-challenge / auth-verify"]
+    Status["env-check / wallet-status"]
+    Setup["setup-wallet"]
+    Deposit["deposit / withdraw"]
+    Trade["buy / sell / poll-exits"]
+    Market["search-markets / market-live"]
+    Journal["journal / positions"]
+  end
+
+  subgraph External["External Systems"]
+    Polygon["Polygon RPC"]
+    Polymarket["Polymarket CLOB + Gamma"]
+    Relay["Polymarket Relayer"]
+    Blobs["Netlify Blobs"]
+  end
+
+  UI --> Auth
+  UI --> Status
+  Search --> Market
+  Chart --> Market
+  Ticket --> Trade
+  Setup --> Relay
+  Deposit --> Polygon
+  Deposit --> Relay
+  Trade --> Polymarket
+  Status --> Polygon
+  Journal --> Blobs
+  Trade --> Blobs
+```
+
+## Required Accounts And Tools
+
+| Need | Why |
+| --- | --- |
+| GitHub account | Host the repo. |
+| Netlify account | Deploy frontend and Functions. |
+| Polymarket account | Create Builder access and API keys. |
+| Rabby or MetaMask | Create/connect the bot wallet. |
+| Fresh bot wallet | Holds only limited trading funds. |
+| POL on Polygon | Pays gas and can be swapped into collateral. |
+| Node.js 20+ | Local development. |
+
+Use a fresh wallet. Do not use a wallet with meaningful personal funds. This app uses a server-side hot wallet by design.
+
+## Setup Screenshots
+
+These screenshots show the important Polymarket and Netlify setup screens.
+
+### 1. Connect The Bot Wallet To Polymarket
 
 ![Polymarket wallet login](./assets/setup/01-polymarket-wallet-login.png)
 
-Use the bot wallet for the whole setup. Do not create API keys from another wallet or another project.
+Use the same bot wallet for every key and credential. Do not mix wallets across projects.
 
-## 3. Create Builder Access
-
-Open the Polymarket Builder/API area and create a Builder profile for this bot wallet.
+### 2. Create Builder Access
 
 ![Create Builder profile](./assets/setup/02-create-builder-profile.png)
 
-Confirm the wallet/account prompts.
+Confirm the Polymarket account/wallet prompt.
 
 ![Confirm Polymarket account](./assets/setup/03-confirm-polymarket-account.png)
 
@@ -77,72 +127,62 @@ Copy the Builder Code.
 
 ![Copy Builder Code](./assets/setup/04-copy-builder-code.png)
 
-Add it to `.env.local` and Netlify:
-
-```txt
-POLYMARKET_BUILDER_CODE=
-```
-
-## 4. Create Builder API Keys
-
-Create a Builder API key for the same bot wallet.
+### 3. Create Builder API Credentials
 
 ![Builder API key created](./assets/setup/05-builder-api-key-created-masked.png)
 
-Save these values:
+Save the key, secret, and passphrase immediately. Treat them like secrets.
+
+### 4. Choose The Netlify Function Region
+
+![Netlify Functions region](./assets/setup/06-netlify-functions-region-dublin.png)
+
+For this build, Dublin worked. Region matters because Polymarket API access can be blocked or restricted depending on where the server request exits.
+
+## Environment Variables
+
+Put these in `.env.local` for local development and in Netlify environment variables for production.
 
 ```txt
-POLYMARKET_BUILDER_API_KEY=
-POLYMARKET_BUILDER_SECRET=
-POLYMARKET_BUILDER_PASSPHRASE=
-```
+# Public frontend config
+VITE_APP_MODE=hot-wallet
+VITE_POLL_INTERVAL_MS=60000
 
-These are server-side only. Never expose them in browser code.
-
-## 5. Create CLOB Credentials
-
-The CLOB credentials must also belong to the same bot wallet.
-
-The app can derive or create them from the bot wallet during server-side setup. Once created, store them:
-
-```txt
-POLYMARKET_CLOB_API_KEY=
-POLYMARKET_CLOB_SECRET=
-POLYMARKET_CLOB_PASSPHRASE=
-```
-
-Do not reuse CLOB keys from a different wallet or app. The CLOB order signer, Builder code, and deposit wallet must all line up.
-
-## 6. Configure Polygon RPC
-
-Use a Polygon RPC that works reliably from Netlify Functions.
-
-```txt
+# Polygon RPC
 POLYGON_RPC_URL=https://polygon-bor-rpc.publicnode.com
 POLYGON_RPC_FALLBACKS=https://polygon.drpc.org,https://polygon.llamarpc.com,https://polygon-rpc.com
 POL_GAS_RESERVE=0.5
-```
 
-The app quotes POL dynamically at deposit time. It does not assume a fixed POL price.
+# Polymarket Builder / Relayer
+POLYMARKET_BUILDER_API_KEY=
+POLYMARKET_BUILDER_SECRET=
+POLYMARKET_BUILDER_PASSPHRASE=
+POLYMARKET_BUILDER_CODE=
 
-## 7. Configure App Security
+# Polymarket CLOB
+POLYMARKET_CLOB_API_KEY=
+POLYMARKET_CLOB_SECRET=
+POLYMARKET_CLOB_PASSPHRASE=
 
-By default, only the bot wallet derived from `BOT_MNEMONIC` can unlock the app.
+# Bot wallet
+BOT_MNEMONIC=
+BOT_ACCOUNT_INDEX=0
 
-Optional overrides:
-
-```txt
+# App auth
 AUTH_ALLOWED_WALLETS=
 AUTH_SECRET=
 ```
 
-Leave `AUTH_ALLOWED_WALLETS` blank unless you intentionally want another admin wallet to unlock the bot. If you add more than one wallet, separate addresses with commas.
+Notes:
 
-## 8. Netlify Setup
+- `BOT_MNEMONIC` is the hot wallet seed phrase. Never commit it.
+- `AUTH_ALLOWED_WALLETS` can usually stay blank. If blank, the app allows only the wallet derived from `BOT_MNEMONIC`.
+- `AUTH_SECRET` signs browser sessions. If blank, the backend falls back to existing private env values, but production should set it explicitly.
+- Keep all Polymarket secrets server-side. Do not prefix them with `VITE_`.
 
-Create a Netlify site connected to your GitHub repo.
+## Netlify Configuration
 
-Build settings:
+The repo uses this Netlify shape:
 
 ```txt
 Build command: npm run build
@@ -150,50 +190,28 @@ Publish directory: dist
 Functions directory: netlify/functions
 ```
 
-Add every server-side env var from the sections above to Netlify.
+Minimal `netlify.toml`:
 
-Set the Functions region to Ireland / Dublin.
+```toml
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
 
-![Netlify Functions region](./assets/setup/06-netlify-functions-region-dublin.png)
+[functions]
+  node_bundler = "esbuild"
 
-This matters because Polymarket region checks happen at the API edge. A region that is blocked or close-only can prevent buys even when your wallet and keys are valid.
+[dev]
+  command = "npm run dev"
+  targetPort = 5173
+  port = 8888
+  publish = "dist"
+```
 
-## 9. Local Development
-
-Install dependencies:
+Local run:
 
 ```bash
 npm install
-```
-
-Create `.env.local`:
-
-```txt
-VITE_APP_MODE=hot-wallet
-VITE_POLL_INTERVAL_MS=60000
-
-POLYGON_RPC_URL=https://polygon-bor-rpc.publicnode.com
-POLYGON_RPC_FALLBACKS=https://polygon.drpc.org,https://polygon.llamarpc.com,https://polygon-rpc.com
-
-POLYMARKET_BUILDER_API_KEY=
-POLYMARKET_BUILDER_SECRET=
-POLYMARKET_BUILDER_PASSPHRASE=
-POLYMARKET_BUILDER_CODE=
-
-POLYMARKET_CLOB_API_KEY=
-POLYMARKET_CLOB_SECRET=
-POLYMARKET_CLOB_PASSPHRASE=
-
-BOT_MNEMONIC=
-BOT_ACCOUNT_INDEX=0
-POL_GAS_RESERVE=0.5
-AUTH_ALLOWED_WALLETS=
-AUTH_SECRET=
-```
-
-Run the app through Netlify Dev so the Functions behave like production:
-
-```bash
 npm run build
 npx netlify dev -d dist -f netlify/functions --port 8888
 ```
@@ -204,64 +222,521 @@ Open:
 http://localhost:8888
 ```
 
-## 10. First Live Test
+Use Netlify Dev, not plain Vite, when testing anything that touches Functions.
 
-Use a tiny test amount.
+## First Live Test Flow
 
-1. Open the deployed Netlify site.
-2. Unlock with the bot wallet.
-3. Send POL to the bot wallet shown in the app.
-4. Click `Sync`.
-5. Click `Arm` to deploy and approve the Polymarket deposit wallet.
-6. Click `Deposit` to convert only the needed amount into pUSD.
-7. Search a liquid, open market.
-8. Pick YES or NO.
-9. Buy the smallest allowed amount.
-10. Confirm the position appears.
-11. Sell the position.
-12. Confirm the position disappears and the trade log updates.
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant B as Browser
+  participant F as Netlify Functions
+  participant P as Polygon
+  participant R as Polymarket Relayer
+  participant C as Polymarket CLOB
+
+  U->>B: Open deployed app
+  U->>B: Connect bot wallet
+  B->>F: Request auth challenge
+  F-->>B: Login message
+  U->>B: Sign login message
+  B->>F: Verify signature
+  F-->>B: Session token
+  U->>P: Send small POL amount to bot wallet
+  B->>F: Sync wallet status
+  F->>P: Read POL/USDC.e/pUSD balances
+  B->>F: Arm wallet
+  F->>R: Deploy deposit wallet if needed
+  F->>R: Set pUSD and CTF approvals
+  B->>F: Deposit needed pUSD
+  F->>P: Swap POL -> USDC.e if needed
+  F->>P: Wrap USDC.e -> pUSD
+  F->>R: Transfer pUSD to deposit wallet
+  B->>F: Buy YES/NO
+  F->>C: Sign and post CLOB order
+  C-->>F: Order accepted/rejected
+  F-->>B: Order result + updated status
+```
+
+Checklist:
+
+1. Deploy the Netlify site.
+2. Open the app.
+3. Unlock with the bot wallet.
+4. Send a small amount of POL to the bot address shown in the app.
+5. Click `Sync`.
+6. Click `Arm wallet`.
+7. Click `Deposit`.
+8. Search for a live, liquid market.
+9. Review YES/NO prices.
+10. Place the smallest allowed trade.
+11. Confirm activity log and position state update.
+12. Test sell.
+13. Test withdraw.
 
 ## Guardrails
 
-The app refuses to trade when:
+The app should refuse to trade when:
 
-- The wallet is not unlocked.
-- Required environment variables are missing.
+- The wallet session is missing or expired.
+- Required env vars are missing.
 - The deposit wallet is not deployed.
-- Polymarket approvals are missing.
+- Approvals are missing.
 - Deposit pUSD is too low.
-- The market is closed or inactive.
-- YES/NO token IDs are missing.
+- The market is closed, inactive, or missing token IDs.
 - The market is too close to resolution.
 - Liquidity is too low.
 - Spread is too wide.
-- The trade is below the minimum size.
+- Trade size is below minimum or above maximum.
 
-Those guardrails are code defaults, not user setup chores.
+Current default risk config:
 
-## What Not To Do
+```ts
+export function riskConfig() {
+  return {
+    maxTradeUsd: 2,
+    minTradeUsd: 1.1,
+    maxOpenPositions: 3,
+    maxDailyLossUsd: 10,
+    maxSpreadCents: 5,
+    minLiquidityUsd: 1000,
+    minHoursToResolution: 2,
+  };
+}
+```
 
-- Do not put secrets in frontend code.
-- Do not use API keys from a different wallet.
-- Do not use a high-value wallet as the bot wallet.
-- Do not run production trading from a region Polymarket blocks.
-- Do not assume POL price. Always quote live.
-- Do not let public visitors call trading Functions without signed wallet auth.
+These are code defaults, not required environment variables.
+
+## Function Map
+
+| Function | Public? | Purpose |
+| --- | --- | --- |
+| `env-check` | Yes | Shows config health. Does not expose secrets. |
+| `search-markets` | Yes | Searches Polymarket markets and marks untradeable ones disabled. |
+| `market-live` | Yes | Loads live price/history/order book/trades. |
+| `auth-challenge` | Public but wallet-restricted | Creates a login message for the allowed wallet. |
+| `auth-verify` | Public but wallet-restricted | Verifies signature and returns session token. |
+| `wallet-status` | No | Reads bot/deposit wallet balances and approvals. |
+| `setup-wallet` | No | Deploys deposit wallet and sets approvals. |
+| `deposit` | No | Swaps/wraps collateral and funds deposit wallet. |
+| `buy` | No | Validates market and posts CLOB buy order. |
+| `sell` | No | Posts CLOB sell order. |
+| `withdraw` | No | Moves pUSD from deposit wallet back to bot wallet. |
+| `positions` | No | Reads stored/open position state. |
+| `journal` | No | Reads activity log. |
+| `poll-exits` | No | Checks stop-loss/take-profit rules. |
+
+## Repo Layout
+
+```mermaid
+flowchart TB
+  Root["repo root"] --> Src["src/"]
+  Root --> Functions["netlify/functions/"]
+  Root --> Docs["docs/"]
+  Root --> Public["public/"]
+
+  Src --> App["App.tsx guided UI"]
+  Src --> Api["api.ts function client"]
+  Src --> Types["types.ts shared frontend types"]
+
+  Functions --> Auth["_auth.ts wallet sessions"]
+  Functions --> Env["_env.ts env + risk config"]
+  Functions --> Wallet["_wallet.ts bot wallet client"]
+  Functions --> PM["_polymarket.ts relayer/CLOB/funding"]
+  Functions --> Market["_market.ts Gamma/CLOB market helpers"]
+  Functions --> Endpoints["buy/sell/deposit/withdraw/setup/etc"]
+
+  Docs --> Guide["polymarket-wizard-guide.md"]
+  Docs --> Images["assets/setup/*.png"]
+```
 
 ## Troubleshooting
 
-`Trading restricted in your region`
+### `Trading restricted in your region`
 
-Change the Netlify Functions region. Dublin worked for this build.
+Change the Netlify Functions region. The request that matters is the server-side request from Netlify to Polymarket, not the browser location.
 
-`CLOB rejected order: not enough balance / allowance`
+### `CLOB rejected order: not enough balance / allowance`
 
-Run `Arm`, then `Deposit`, then `Sync`. The deposit wallet needs pUSD and max approvals.
+Run:
 
-`No CLOB history returned`
+1. `Arm wallet`
+2. `Deposit`
+3. `Sync`
+4. Try the trade again
 
-Some markets do not return recent price history. The app should still show live book data if the token has an order book.
+The deposit wallet needs pUSD and the correct max approvals.
 
-`Wallet locked`
+### `Could not create or derive CLOB API credentials`
 
-Connect the same wallet that created the bot credentials. A different wallet can view markets but cannot control funds.
+The CLOB credentials do not match the bot wallet, or the bot wallet has not been set up correctly with Polymarket.
+
+### `API functions are not available`
+
+You probably ran plain Vite. Use Netlify Dev:
+
+```bash
+npx netlify dev -d dist -f netlify/functions --port 8888
+```
+
+### `Wallet locked`
+
+Connect the same wallet that controls the bot. If you set `AUTH_ALLOWED_WALLETS`, make sure the connected address is included.
+
+## Appendix A: Minimal Backend Patterns
+
+This appendix captures the important backend code patterns. The full working code lives in `netlify/functions/`.
+
+### 1. Function Response Helpers
+
+```ts
+export function json(data: unknown, status = 200) {
+  return Response.json(data, { status });
+}
+
+export function error(message: string, status = 400, details?: unknown) {
+  return json({ ok: false, error: message, details }, status);
+}
+```
+
+### 2. Env Health Check
+
+```ts
+const required = [
+  "POLYGON_RPC_URL",
+  "POLYMARKET_BUILDER_API_KEY",
+  "POLYMARKET_BUILDER_SECRET",
+  "POLYMARKET_BUILDER_PASSPHRASE",
+  "POLYMARKET_BUILDER_CODE",
+  "POLYMARKET_CLOB_API_KEY",
+  "POLYMARKET_CLOB_SECRET",
+  "POLYMARKET_CLOB_PASSPHRASE",
+  "BOT_MNEMONIC",
+];
+
+export function envCheck() {
+  const missing = required.filter((key) => !process.env[key]);
+  return {
+    ok: missing.length === 0,
+    missing,
+    mode: process.env.VITE_APP_MODE || "hot-wallet",
+  };
+}
+```
+
+### 3. Bot Wallet From Seed Phrase
+
+```ts
+import { mnemonicToAccount } from "viem/accounts";
+import { createPublicClient, createWalletClient, http } from "viem";
+
+export function getBotAccount() {
+  const mnemonic = process.env.BOT_MNEMONIC;
+  if (!mnemonic) throw new Error("Missing BOT_MNEMONIC");
+  return mnemonicToAccount(mnemonic, {
+    accountIndex: Number(process.env.BOT_ACCOUNT_INDEX || 0),
+  });
+}
+
+export function getBotAddress() {
+  return getBotAccount().address;
+}
+
+export function getPublicClient() {
+  return createPublicClient({
+    chain: polygonWithRpc,
+    transport: http(process.env.POLYGON_RPC_URL),
+  });
+}
+
+export function getWalletClient() {
+  return createWalletClient({
+    account: getBotAccount(),
+    chain: polygonWithRpc,
+    transport: http(process.env.POLYGON_RPC_URL),
+  });
+}
+```
+
+### 4. Wallet Login Model
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant F as Function
+  participant W as Wallet
+  B->>F: POST auth-challenge(address)
+  F->>F: check address is allowed
+  F-->>B: message + nonce
+  B->>W: personal_sign(message)
+  W-->>B: signature
+  B->>F: POST auth-verify(address, nonce, signature)
+  F->>F: verify signature
+  F-->>B: signed session token
+```
+
+Endpoint pattern:
+
+```ts
+export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
+  // Private action here.
+  return json({ ok: true });
+}
+```
+
+### 5. Polymarket Relayer Setup
+
+```ts
+import { BuilderConfig } from "@polymarket/builder-signing-sdk";
+import { RelayClient } from "@polymarket/builder-relayer-client";
+
+export async function getRelayer() {
+  const builderConfig = new BuilderConfig({
+    localBuilderCreds: {
+      key: process.env.POLYMARKET_BUILDER_API_KEY || "",
+      secret: process.env.POLYMARKET_BUILDER_SECRET || "",
+      passphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || "",
+    },
+  });
+
+  return new RelayClient(
+    "https://relayer-v2.polymarket.com",
+    137,
+    getWalletClient(),
+    builderConfig,
+    undefined,
+    { chain: polygonWithRpc },
+  );
+}
+```
+
+### 6. Deposit Wallet Lifecycle
+
+```mermaid
+flowchart TB
+  A["deriveDepositWalletAddress"] --> B{"already deployed?"}
+  B -- yes --> C["skip deploy"]
+  B -- no --> D["deployDepositWallet"]
+  C --> E["approve pUSD to Exchange"]
+  D --> E
+  E --> F["approve pUSD to Neg Risk Exchange"]
+  F --> G["approve pUSD to Neg Risk Adapter"]
+  G --> H["set CTF approval for Exchange"]
+  H --> I["set CTF approval for Neg Risk Exchange"]
+  I --> J["readyToTrade = true if funded"]
+```
+
+Core pattern:
+
+```ts
+export async function deployDepositWalletIfNeeded() {
+  const { relayer, address, exists } = await getDepositWallet();
+  if (exists) return { depositWallet: address, deployed: false };
+
+  const tx = await relayer.deployDepositWallet();
+  const receipt = await tx.wait();
+  if (!receipt) throw new Error("Deposit wallet deployment failed");
+
+  return { depositWallet: address, deployed: true };
+}
+```
+
+### 7. Funding Path
+
+```mermaid
+flowchart LR
+  POL["POL in bot wallet"] --> Quote["Quote best Uniswap pool"]
+  Quote --> Swap["Swap POL -> USDC.e"]
+  USDC["USDC.e in bot wallet"] --> Wrap["Wrap USDC.e -> pUSD"]
+  Swap --> Wrap
+  PUSD["pUSD in bot wallet"] --> Transfer["Transfer pUSD"]
+  Wrap --> DepositWallet["Deposit wallet pUSD"]
+  Transfer --> DepositWallet
+```
+
+Funding logic:
+
+```ts
+if (botPusdBalance >= amount) {
+  transferPusdToDepositWallet();
+} else {
+  if (usdcBalance < amount) {
+    swapPolToUsdcEForAmount(amountUsd);
+  }
+  approveUsdcEToCollateralOnramp();
+  wrapUsdcEToPusdIntoDepositWallet();
+}
+```
+
+### 8. CLOB Client
+
+```ts
+const client = new ClobClient({
+  host: "https://clob.polymarket.com",
+  chain: Chain.POLYGON,
+  signer: walletClient,
+  creds: {
+    key: process.env.POLYMARKET_CLOB_API_KEY,
+    secret: process.env.POLYMARKET_CLOB_SECRET,
+    passphrase: process.env.POLYMARKET_CLOB_PASSPHRASE,
+  },
+  signatureType: SignatureTypeV2.POLY_1271,
+  funderAddress: depositWallet,
+  throwOnError: true,
+  retryOnError: true,
+  builderConfig: {
+    builderCode: process.env.POLYMARKET_BUILDER_CODE,
+  },
+});
+```
+
+Important:
+
+- `signatureType` must match the Polymarket deposit wallet flow.
+- `funderAddress` must be the deposit wallet.
+- Builder code is for fee attribution.
+- Builder API credentials are for relayer actions.
+- CLOB credentials are for order API access.
+
+### 9. Buy Flow
+
+```mermaid
+flowchart TB
+  A["POST /buy"] --> B["requireAuth"]
+  B --> C["envCheck"]
+  C --> D["validate amount + side"]
+  D --> E["load market"]
+  E --> F["validate market guardrails"]
+  F --> G["wallet status"]
+  G --> H{"pUSD enough?"}
+  H -- no --> I["return clear error"]
+  H -- yes --> J["create CLOB order"]
+  J --> K["post order"]
+  K --> L["write journal"]
+  L --> M["return order status"]
+```
+
+Core endpoint shape:
+
+```ts
+export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const market = await findMarket(String(body.marketId));
+  const check = validateMarket(market);
+  if (!check.ok) return error(check.reason || "Market not tradeable");
+
+  const order = await placeOrder({
+    market,
+    side: body.side === "NO" ? "NO" : "YES",
+    action: "buy",
+    amountUsd: Number(body.amountUsd),
+    limitPrice: body.limitPrice ? Number(body.limitPrice) : undefined,
+  });
+
+  return json({ ok: true, orderId: order.orderId, orderStatus: order.status });
+}
+```
+
+### 10. Market Search Rule
+
+```ts
+const markets = await fetchMarkets(query, 100);
+
+const tradeable = markets
+  .map((market) => {
+    const check = validateMarket(market);
+    return {
+      market: check.ok ? market : { ...market, disabledReason: check.reason },
+      ok: check.ok,
+    };
+  })
+  .sort((a, b) => Number(b.ok) - Number(a.ok) || b.market.volume - a.market.volume)
+  .slice(0, 30);
+```
+
+The app should show disabled markets as disabled, not let the user discover the failure only after clicking buy.
+
+## Appendix B: Minimal Frontend Pattern
+
+The frontend only needs four things:
+
+1. Store the session token.
+2. Render the current step.
+3. Call Netlify Functions.
+4. Never hold secrets.
+
+### API Client
+
+```ts
+export async function callApi<T>(name: string, body?: unknown): Promise<T> {
+  const token = localStorage.getItem("wizardSessionToken");
+  const headers: Record<string, string> = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`/.netlify/functions/${name}`, {
+    method: body ? "POST" : "GET",
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+  return data as T;
+}
+```
+
+### Step Selection
+
+```ts
+if (!isUnlocked) stage = "unlock";
+else if (!env.ok) stage = "system";
+else if (!walletArmed) stage = "arm";
+else if (!tradeFunded) stage = "fund";
+else if (!selectedMarket) stage = "market";
+else stage = "trade";
+```
+
+This is the main UX rule. The app should always know the one thing the user needs to do next.
+
+## Appendix C: Files To Study In This Repo
+
+| File | Why it matters |
+| --- | --- |
+| `netlify/functions/_auth.ts` | Wallet login, challenge, session verification. |
+| `netlify/functions/_env.ts` | Required env vars and hardcoded guardrails. |
+| `netlify/functions/_wallet.ts` | Server hot-wallet derivation and Polygon clients. |
+| `netlify/functions/_polymarket.ts` | Relayer, deposit wallet, funding, CLOB client, orders. |
+| `netlify/functions/_market.ts` | Polymarket market loading and tradeability validation. |
+| `netlify/functions/setup-wallet.ts` | Deploys and approves the deposit wallet. |
+| `netlify/functions/deposit.ts` | Converts/funds the deposit wallet. |
+| `netlify/functions/buy.ts` | Main buy endpoint. |
+| `netlify/functions/sell.ts` | Main sell endpoint. |
+| `src/api.ts` | Browser-to-Function client. |
+| `src/App.tsx` | Guided frontend journey. |
+
+## Final Mental Model
+
+```mermaid
+flowchart LR
+  A["Secrets live in Netlify"] --> B["Functions sign and relay"]
+  B --> C["Deposit wallet holds pUSD"]
+  C --> D["CLOB order uses deposit wallet as funder"]
+  D --> E["Builder code attributes fees"]
+  F["Browser"] --> G["Signs login only"]
+  G --> B
+```
+
+The browser is a control surface. Netlify is the private execution layer. Polymarket is the trading venue. The deposit wallet is where trading collateral lives.

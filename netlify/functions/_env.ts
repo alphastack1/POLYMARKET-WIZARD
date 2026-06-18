@@ -14,6 +14,7 @@ export function envCheck() {
     "POLYMARKET_BUILDER_API_KEY",
     "POLYMARKET_BUILDER_SECRET",
     "POLYMARKET_BUILDER_PASSPHRASE",
+    "POLYMARKET_BUILDER_CODE",
     "BOT_MNEMONIC",
   ];
   const missing = required.filter((key) => !process.env[key]);
@@ -38,18 +39,13 @@ export function requireEnvReady() {
 
 export function riskConfig() {
   return {
-    maxTradeUsd: num("MAX_TRADE_USD", 2),
-    maxOpenPositions: num("MAX_OPEN_POSITIONS", 3),
-    maxDailyLossUsd: num("MAX_DAILY_LOSS_USD", 10),
-    maxSpreadCents: num("MAX_SPREAD_CENTS", 5),
-    minLiquidityUsd: num("MIN_LIQUIDITY_USD", 1000),
-    minHoursToResolution: num("MIN_HOURS_TO_RESOLUTION", 2),
+    maxTradeUsd: 2,
+    maxOpenPositions: 3,
+    maxDailyLossUsd: 10,
+    maxSpreadCents: 5,
+    minLiquidityUsd: 1000,
+    minHoursToResolution: 2,
   };
-}
-
-function num(key: string, fallback: number) {
-  const value = Number(process.env[key]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function safeBotAddress() {

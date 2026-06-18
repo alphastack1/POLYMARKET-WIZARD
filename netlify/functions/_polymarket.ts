@@ -408,11 +408,6 @@ export async function withdrawPusdFromDepositWallet(amountUsd: number) {
 
 export async function getClobClient() {
   const walletClient = getWalletClient();
-  const envCreds = {
-    key: process.env.POLYMARKET_CLOB_API_KEY || "",
-    secret: process.env.POLYMARKET_CLOB_SECRET || "",
-    passphrase: process.env.POLYMARKET_CLOB_PASSPHRASE || "",
-  };
   const { address: depositWallet } = await getDepositWallet();
 
   const bootstrap = new ClobClient({
@@ -425,14 +420,13 @@ export async function getClobClient() {
     ...(process.env.POLYMARKET_BUILDER_CODE ? { builderConfig: { builderCode: process.env.POLYMARKET_BUILDER_CODE } } : {}),
   });
   const generatedCreds = await bootstrap.createOrDeriveApiKey(0).catch(() => null);
-  const creds = generatedCreds || (envCreds.key && envCreds.secret && envCreds.passphrase ? envCreds : null);
-  if (!creds) throw new Error("Could not create or load CLOB API credentials for the bot wallet");
+  if (!generatedCreds) throw new Error("Could not create or derive CLOB API credentials for the bot wallet");
 
   return new ClobClient({
     host: CLOB_HOST,
     chain: Chain.POLYGON,
     signer: walletClient as never,
-    creds,
+    creds: generatedCreds,
     signatureType: SignatureTypeV2.POLY_1271,
     funderAddress: depositWallet,
     throwOnError: true,

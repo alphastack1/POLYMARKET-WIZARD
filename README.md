@@ -67,10 +67,6 @@ Server-side only:
 POLYGON_RPC_URL
 POLYGON_RPC_FALLBACKS
 
-POLYMARKET_CLOB_API_KEY
-POLYMARKET_CLOB_SECRET
-POLYMARKET_CLOB_PASSPHRASE
-
 POLYMARKET_BUILDER_API_KEY
 POLYMARKET_BUILDER_SECRET
 POLYMARKET_BUILDER_PASSPHRASE
@@ -91,6 +87,8 @@ MIN_HOURS_TO_RESOLUTION
 ```
 
 Never commit `.env.local`.
+
+CLOB API credentials are not copied into env. The app creates or derives them from `BOT_MNEMONIC` at runtime so they belong to this Wizard signer wallet.
 
 ## First Run
 

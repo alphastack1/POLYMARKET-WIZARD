@@ -11,9 +11,6 @@ export function error(message: string, status = 400, details?: unknown) {
 export function envCheck() {
   const required = [
     "POLYGON_RPC_URL",
-    "POLYMARKET_CLOB_API_KEY",
-    "POLYMARKET_CLOB_SECRET",
-    "POLYMARKET_CLOB_PASSPHRASE",
     "POLYMARKET_BUILDER_API_KEY",
     "POLYMARKET_BUILDER_SECRET",
     "POLYMARKET_BUILDER_PASSPHRASE",

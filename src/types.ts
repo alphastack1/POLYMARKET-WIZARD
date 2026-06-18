@@ -13,6 +13,8 @@ export type Market = {
   endDate?: string | null;
   conditionId?: string;
   negRisk?: boolean;
+  acceptingOrders?: boolean;
+  eventTitle?: string;
   disabledReason?: string;
 };
 

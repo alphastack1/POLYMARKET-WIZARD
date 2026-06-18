@@ -8,8 +8,13 @@ export default async function handler(req: Request) {
   const tradeable = markets
     .map((market) => {
       const check = validateMarket(market);
-      return check.ok ? market : { ...market, disabledReason: check.reason };
+      return {
+        market: check.ok ? market : { ...market, disabledReason: check.reason },
+        ok: check.ok,
+      };
     })
+    .sort((a, b) => Number(b.ok) - Number(a.ok) || b.market.volume - a.market.volume)
+    .map(({ market }) => market)
     .slice(0, 30);
 
   return json({ ok: true, markets: tradeable });

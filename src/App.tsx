@@ -41,7 +41,7 @@ export default function App() {
   const [selected, setSelected] = useState<Market | null>(storedSelected);
   const [marketCheck, setMarketCheck] = useState<MarketCheck | null>(null);
   const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
-  const [amount, setAmount] = useState(loadSetting("amount", 1.1));
+  const [amount, setAmount] = useState(Math.max(1.1, loadSetting("amount", 1.1)));
   const [stopLoss, setStopLoss] = useState(loadSetting("stopLoss", 20));
   const [takeProfit, setTakeProfit] = useState(loadSetting("takeProfit", 35));
   const [polling, setPolling] = useState(loadSetting("polling", false));

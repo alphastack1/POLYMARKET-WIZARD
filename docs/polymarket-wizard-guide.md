@@ -13,7 +13,7 @@ The UI can be redesigned however you want. The important part is the backend flo
 ## The Whole App In One Picture
 
 ```mermaid
-flowchart LR
+flowchart TB
   User["User opens app"] --> View["Public market viewer"]
   View --> Unlock["Sign wallet login"]
   Unlock --> Session["Short-lived session token"]
@@ -35,6 +35,7 @@ The core idea is simple: the browser never receives private keys. The browser as
 
 ```mermaid
 stateDiagram-v2
+  direction TB
   [*] --> Unlock
   Unlock --> ArmWallet: wallet signature accepted
   ArmWallet --> FundWallet: deposit wallet deployed + approvals set
@@ -227,35 +228,25 @@ Use Netlify Dev, not plain Vite, when testing anything that touches Functions.
 ## First Live Test Flow
 
 ```mermaid
-sequenceDiagram
-  participant U as User
-  participant B as Browser
-  participant F as Netlify Functions
-  participant P as Polygon
-  participant R as Polymarket Relayer
-  participant C as Polymarket CLOB
-
-  U->>B: Open deployed app
-  U->>B: Connect bot wallet
-  B->>F: Request auth challenge
-  F-->>B: Login message
-  U->>B: Sign login message
-  B->>F: Verify signature
-  F-->>B: Session token
-  U->>P: Send small POL amount to bot wallet
-  B->>F: Sync wallet status
-  F->>P: Read POL/USDC.e/pUSD balances
-  B->>F: Arm wallet
-  F->>R: Deploy deposit wallet if needed
-  F->>R: Set pUSD and CTF approvals
-  B->>F: Deposit needed pUSD
-  F->>P: Swap POL -> USDC.e if needed
-  F->>P: Wrap USDC.e -> pUSD
-  F->>R: Transfer pUSD to deposit wallet
-  B->>F: Buy YES/NO
-  F->>C: Sign and post CLOB order
-  C-->>F: Order accepted/rejected
-  F-->>B: Order result + updated status
+flowchart TB
+  A["Open deployed app"] --> B["Connect bot wallet"]
+  B --> C["Request auth challenge"]
+  C --> D["Sign login message"]
+  D --> E["Verify signature"]
+  E --> F["Receive session token"]
+  F --> G["Send small POL amount to bot wallet"]
+  G --> H["Sync wallet status"]
+  H --> I["Read POL / USDC.e / pUSD balances"]
+  I --> J["Arm wallet"]
+  J --> K["Deploy deposit wallet if needed"]
+  K --> L["Set pUSD + CTF approvals"]
+  L --> M["Deposit needed pUSD"]
+  M --> N["Swap POL -> USDC.e if needed"]
+  N --> O["Wrap USDC.e -> pUSD"]
+  O --> P["Transfer pUSD to deposit wallet"]
+  P --> Q["Buy YES or NO"]
+  Q --> R["Sign and post CLOB order"]
+  R --> S["Show order result + updated status"]
 ```
 
 Checklist:
@@ -461,18 +452,13 @@ export function getWalletClient() {
 ### 4. Wallet Login Model
 
 ```mermaid
-sequenceDiagram
-  participant B as Browser
-  participant F as Function
-  participant W as Wallet
-  B->>F: POST auth-challenge(address)
-  F->>F: check address is allowed
-  F-->>B: message + nonce
-  B->>W: personal_sign(message)
-  W-->>B: signature
-  B->>F: POST auth-verify(address, nonce, signature)
-  F->>F: verify signature
-  F-->>B: signed session token
+flowchart TB
+  A["Browser posts address to auth-challenge"] --> B["Function checks allowed wallet"]
+  B --> C["Function returns message + nonce"]
+  C --> D["Wallet signs message"]
+  D --> E["Browser posts address + nonce + signature"]
+  E --> F["Function verifies signature"]
+  F --> G["Function returns signed session token"]
 ```
 
 Endpoint pattern:
@@ -550,7 +536,7 @@ export async function deployDepositWalletIfNeeded() {
 ### 7. Funding Path
 
 ```mermaid
-flowchart LR
+flowchart TB
   POL["POL in bot wallet"] --> Quote["Quote best Uniswap pool"]
   Quote --> Swap["Swap POL -> USDC.e"]
   USDC["USDC.e in bot wallet"] --> Wrap["Wrap USDC.e -> pUSD"]
@@ -730,7 +716,7 @@ This is the main UX rule. The app should always know the one thing the user need
 ## Final Mental Model
 
 ```mermaid
-flowchart LR
+flowchart TB
   A["Secrets live in Netlify"] --> B["Functions sign and relay"]
   B --> C["Deposit wallet holds pUSD"]
   C --> D["CLOB order uses deposit wallet as funder"]

@@ -27,12 +27,15 @@ body,
 #root {
   min-width: 320px;
   min-height: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 html,
 body {
   overflow-x: hidden;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: auto;
 }
 
 body {
@@ -60,10 +63,17 @@ button:disabled {
   opacity: 0.48;
 }
 
+.drag-scrolling,
+.drag-scrolling * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
 .app-shell {
   width: min(1180px, calc(100vw - 28px));
   margin: 0 auto;
   padding: 16px 0 36px;
+  touch-action: pan-y;
 }
 
 .app-top,

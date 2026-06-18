@@ -328,6 +328,58 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [isUnlocked, pollExits, polling, positions.length, tradeFunded]);
 
+  useEffect(() => {
+    let pointerId: number | null = null;
+    let startY = 0;
+    let startScrollTop = 0;
+    let isDragging = false;
+
+    const scroller = () => document.scrollingElement || document.documentElement;
+    const isInteractive = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(target.closest("button, a, input, textarea, select, label, [role='button'], .progress-strip"));
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" || event.button !== 0 || isInteractive(event.target)) return;
+      const element = scroller();
+      if (element.scrollHeight <= window.innerHeight) return;
+      pointerId = event.pointerId;
+      startY = event.clientY;
+      startScrollTop = element.scrollTop;
+      isDragging = false;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return;
+      const deltaY = event.clientY - startY;
+      if (Math.abs(deltaY) < 6 && !isDragging) return;
+      isDragging = true;
+      document.body.classList.add("drag-scrolling");
+      scroller().scrollTop = startScrollTop - deltaY;
+      event.preventDefault();
+    };
+
+    const endDrag = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return;
+      pointerId = null;
+      isDragging = false;
+      document.body.classList.remove("drag-scrolling");
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointermove", onPointerMove, { passive: false });
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", endDrag);
+      document.removeEventListener("pointercancel", endDrag);
+      document.body.classList.remove("drag-scrolling");
+    };
+  }, []);
+
   return (
     <main className="app-shell">
       <header className="app-top">

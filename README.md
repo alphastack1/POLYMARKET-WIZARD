@@ -23,9 +23,24 @@ Read the full build and setup guide:
 ```bash
 npm install
 npm run build
-npx netlify dev -d dist -f netlify/functions --port 8888
+npm run dev:netlify
 ```
 
 Open `http://localhost:8888`.
 
 Never commit `.env.local`.
+
+## Project Layout
+
+```txt
+src/                 React trading console
+netlify/functions/   Server-side wallet, CLOB, relay, and auth functions
+docs/                Build guide and setup screenshots
+public/              Static assets
+```
+
+## Safety Model
+
+Market search is public. Wallet balances, position history, setup, deposits,
+orders, sells, withdrawals, and exit polling require a signed session from the
+authorized bot wallet.

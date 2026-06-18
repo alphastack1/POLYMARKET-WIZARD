@@ -1,11 +1,14 @@
 {
   "name": "polymarket-wizard",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A guarded Netlify + React trading console for one Polymarket bot wallet.",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:netlify": "netlify dev -d dist -f netlify/functions --port 8888",
     "build": "tsc && vite build",
+    "functions:build": "netlify functions:build --src netlify/functions --functions .netlify/functions-test",
     "preview": "vite preview"
   },
   "devDependencies": {

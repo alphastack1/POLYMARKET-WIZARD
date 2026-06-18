@@ -28,6 +28,13 @@ dist-ssr
 
 # Local bot secrets/artifacts
 .bot-address.txt
+.local/
 .netlify-dev-*.log
 .netlify-dev-*.pid
 qa-*.png
+
+# Test/build scratch
+coverage
+playwright-report
+test-results
+*.tsbuildinfo

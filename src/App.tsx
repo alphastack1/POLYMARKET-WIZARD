@@ -63,6 +63,8 @@ type MarketLive = {
   liveErrors?: string[];
 };
 
+type Stage = "loading" | "unlock" | "system" | "arm" | "fund" | "market" | "trade";
+
 declare global {
   interface Window {
     ethereum?: {
@@ -93,8 +95,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [booted, setBooted] = useState(false);
 
-  const isUnlocked = Boolean(session?.token && session.expiresAt > Date.now() && env?.authenticated);
+  const hasSession = Boolean(session?.token && session.expiresAt > Date.now());
+  const isUnlocked = Boolean(hasSession && env?.authenticated);
+  const waitingForWallet = Boolean(isUnlocked && wallet === null);
   const selectedPrice = side === "YES" ? marketLive?.yesPrice : marketLive?.noPrice;
   const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
@@ -105,21 +110,22 @@ export default function App() {
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
 
-  const stage = useMemo(() => {
+  const stage = useMemo<Stage>(() => {
+    if (!booted || waitingForWallet) return "loading";
     if (!isUnlocked) return "unlock";
     if (!env?.ok) return "system";
     if (!walletArmed) return "arm";
     if (!tradeFunded) return "fund";
     if (!selected || !marketLive?.ok) return "market";
     return "trade";
-  }, [env?.ok, isUnlocked, marketLive?.ok, selected, tradeFunded, walletArmed]);
+  }, [booted, env?.ok, isUnlocked, marketLive?.ok, selected, tradeFunded, waitingForWallet, walletArmed]);
 
   const stepItems = [
-    { key: "unlock", label: "Unlock", done: isUnlocked },
-    { key: "arm", label: "Arm", done: walletArmed },
-    { key: "fund", label: "Fund", done: tradeFunded },
-    { key: "market", label: "Market", done: Boolean(selected && marketLive?.ok) },
-    { key: "trade", label: "Trade", done: stage === "trade" },
+    { key: "unlock", label: "Unlock", done: booted && isUnlocked },
+    { key: "arm", label: "Arm", done: booted && isUnlocked && walletArmed },
+    { key: "fund", label: "Fund", done: booted && isUnlocked && walletArmed && tradeFunded },
+    { key: "market", label: "Market", done: booted && isUnlocked && walletArmed && tradeFunded && Boolean(selected && marketLive?.ok) },
+    { key: "trade", label: "Trade", done: booted && stage === "trade" },
   ];
 
   const hero = heroCopy(stage, wallet, selected, selectedPrice);
@@ -150,14 +156,14 @@ export default function App() {
   const refreshJournal = useCallback(async () => setJournal((await callApi<{ ok: true; entries: JournalEntry[] }>("journal")).entries), []);
 
   const refreshProtected = useCallback(async () => {
-    if (!session?.token) return;
+    if (!localStorage.getItem("wizardSessionToken")) return;
     await Promise.all([refreshWallet(), refreshPositions(), refreshJournal()]);
-  }, [refreshJournal, refreshPositions, refreshWallet, session?.token]);
+  }, [refreshJournal, refreshPositions, refreshWallet]);
 
   const refreshAll = useCallback(async () => {
     const nextEnv = await refreshEnv();
-    if (session?.token && nextEnv.authenticated) await refreshProtected();
-  }, [refreshEnv, refreshProtected, session?.token]);
+    if (localStorage.getItem("wizardSessionToken") && nextEnv.authenticated) await refreshProtected();
+  }, [refreshEnv, refreshProtected]);
 
   const loadMarketLive = useCallback(async (market: Market | null, nextSide = side) => {
     if (!market) return setMarketLive(null);
@@ -262,6 +268,7 @@ export default function App() {
   }, [refreshProtected]);
 
   const runPrimary = () => {
+    if (stage === "loading") return run("sync", refreshAll);
     if (!isUnlocked) return connectWallet();
     if (!env?.ok) return run("system", refreshEnv);
     if (!walletArmed) return setupWallet();
@@ -276,7 +283,15 @@ export default function App() {
   };
 
   useEffect(() => {
-    refreshAll().catch(() => undefined);
+    let cancelled = false;
+    refreshAll()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setBooted(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [refreshAll]);
 
   useEffect(() => {
@@ -379,6 +394,7 @@ export default function App() {
 
         <section className="task-card" id="trade-workspace">
           {stage === "unlock" && <UnlockPanel connect={connectWallet} />}
+          {stage === "loading" && <LoadingPanel />}
           {stage === "system" && <SystemPanel env={env} refresh={() => run("system", refreshEnv)} />}
           {stage === "arm" && <ArmPanel setupWallet={setupWallet} wallet={wallet} />}
           {stage === "fund" && (
@@ -488,7 +504,13 @@ export default function App() {
   );
 }
 
-function heroCopy(stage: string, wallet: WalletStatus | null, selected: Market | null, selectedPrice?: number) {
+function heroCopy(stage: Stage, wallet: WalletStatus | null, selected: Market | null, selectedPrice?: number) {
+  if (stage === "loading") return {
+    eyebrow: "Checking",
+    title: "Loading wallet status",
+    body: "The Wizard is syncing configuration, balances, approvals, and the selected market before enabling actions.",
+    action: "Sync status",
+  };
   if (stage === "unlock") return {
     eyebrow: "Step 1",
     title: "Unlock the bot wallet",
@@ -525,6 +547,16 @@ function heroCopy(stage: string, wallet: WalletStatus | null, selected: Market |
     body: `${selectedPrice ? `Current ${cents(selectedPrice)} ${selected ? "price" : ""}.` : "Live quote loaded."} Pick YES or NO, size the trade, then place the order.`,
     action: "Review order",
   };
+}
+
+function LoadingPanel() {
+  return (
+    <div className="simple-panel">
+      <RefreshCcw className="spin" size={34} />
+      <h2>Checking the setup</h2>
+      <p>Hold on while the app confirms the environment, wallet, balances, approvals, and market data.</p>
+    </div>
+  );
 }
 
 function WalletSummary({ env, wallet, unlocked, walletArmed, tradeFunded }: {

@@ -31,6 +31,7 @@ export type WalletStatus = {
   depositWallet: string | null;
   depositWalletExists: boolean;
   polBalance?: number;
+  polUsdcEstimate?: number;
   usdcBalance?: number;
   botPusdBalance?: number;
   pusdBalance: number;

@@ -23,19 +23,27 @@ import {
   NEG_RISK_EXCHANGE,
   ONRAMP_ABI,
   PUSD,
+  UNISWAP_QUOTER,
+  UNISWAP_QUOTER_ABI,
+  UNISWAP_ROUTER,
+  UNISWAP_ROUTER_ABI,
   USDC_E,
+  WPOL,
 } from "./_contracts";
 import { getBotAddress, getPublicClient, getWalletClient, polygonWithRpc } from "./_wallet";
 
 const RELAYER_URL = "https://relayer-v2.polymarket.com";
 const CLOB_HOST = "https://clob.polymarket.com";
 const CHAIN_ID = 137;
+const POL_SWAP_FEES = [100, 500, 3000, 10000] as const;
+const POL_GAS_RESERVE = parseUnits(process.env.POL_GAS_RESERVE || "0.5", 18);
 
 export type WalletStatusDetails = {
   botAddress: string;
   depositWallet: string | null;
   depositWalletExists: boolean;
   polBalance: number;
+  polUsdcEstimate: number;
   usdcBalance: number;
   botPusdBalance: number;
   pusdBalance: number;
@@ -215,6 +223,7 @@ export async function getWalletStatusDetails(): Promise<WalletStatusDetails> {
     Boolean(ctfExchangeApproved) &&
     Boolean(ctfNegRiskApproved);
   const polBalance = Number(formatEther(polRaw));
+  const polUsdcEstimate = Number(formatUnits(await quoteSpendablePolToUsdc(polRaw).catch(() => 0n), 6));
   const usdcBalance = Number(formatUnits(usdcRaw, 6));
   const botPusdBalance = Number(formatUnits(botPusdRaw, 6));
   const pusdBalance = Number(formatUnits(depositPusdRaw, 6));
@@ -223,7 +232,7 @@ export async function getWalletStatusDetails(): Promise<WalletStatusDetails> {
   if (!depositWallet) reason = "Could not derive deposit wallet";
   else if (!exists) reason = "Deposit wallet not deployed";
   else if (!approvalsReady) reason = "Deposit wallet approvals missing";
-  else if (pusdBalance < 1) reason = "Deposit wallet needs at least $1 pUSD";
+  else if (pusdBalance < 1) reason = "Deposit wallet needs pUSD. Send POL, USDC.e, or pUSD to the bot wallet, then deposit.";
   else reason = undefined;
 
   return {
@@ -231,6 +240,7 @@ export async function getWalletStatusDetails(): Promise<WalletStatusDetails> {
     depositWallet,
     depositWalletExists: exists,
     polBalance,
+    polUsdcEstimate,
     usdcBalance,
     botPusdBalance,
     pusdBalance,
@@ -268,8 +278,18 @@ export async function wrapBotUsdcToDepositWallet(amountUsd: number) {
   }) as bigint;
 
   if (usdcBalance < amount && botPusdBalance < amount) {
-    throw new Error(`Need ${amountUsd.toFixed(2)} USDC.e or pUSD in bot wallet`);
+    const swapped = await swapPolToUsdcEForAmount(amountUsd);
+    if (!swapped) {
+      throw new Error(`Need ${amountUsd.toFixed(2)} USDC.e, pUSD, or enough POL in bot wallet`);
+    }
   }
+
+  const refreshedUsdcBalance = await publicClient.readContract({
+    address: USDC_E,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [account],
+  }) as bigint;
 
   if (botPusdBalance >= amount) {
     const hash = await walletClient.writeContract({
@@ -289,6 +309,10 @@ export async function wrapBotUsdcToDepositWallet(amountUsd: number) {
     args: [account, COLLATERAL_ONRAMP],
   }) as bigint;
 
+  if (refreshedUsdcBalance < amount) {
+    throw new Error(`POL swap completed but bot has only $${formatUnits(refreshedUsdcBalance, 6)} USDC.e`);
+  }
+
   if (allowance < amount) {
     const approveHash = await walletClient.writeContract({
       address: USDC_E,
@@ -307,6 +331,58 @@ export async function wrapBotUsdcToDepositWallet(amountUsd: number) {
   });
   await publicClient.waitForTransactionReceipt({ hash });
   return { txHash: hash, mode: "wrap-usdce", depositWallet };
+}
+
+export async function swapPolToUsdcEForAmount(amountUsd: number) {
+  const publicClient = getPublicClient();
+  const walletClient = getWalletClient();
+  const account = getBotAddress() as `0x${string}`;
+  const polBalance = await publicClient.getBalance({ address: account });
+  if (polBalance <= POL_GAS_RESERVE) return null;
+
+  const amountOutNeeded = parseUnits(amountUsd.toFixed(6), 6);
+  const spendablePol = polBalance - POL_GAS_RESERVE;
+  const bestQuote = await quoteBestPolSwap(parseUnits("1", 18));
+  if (!bestQuote || bestQuote.amountOut === 0n) return null;
+
+  const paddedPolIn = (amountOutNeeded * parseUnits("1", 18) * 105n) / (bestQuote.amountOut * 100n);
+  const amountIn = paddedPolIn > spendablePol ? spendablePol : paddedPolIn;
+  if (amountIn <= 0n) return null;
+
+  const expectedOut = await quotePolSwap(amountIn, bestQuote.fee).catch(() => 0n);
+  if (expectedOut < amountOutNeeded) return null;
+
+  const minOut = (expectedOut * 97n) / 100n;
+  const hash = await walletClient.writeContract({
+    address: UNISWAP_ROUTER,
+    abi: UNISWAP_ROUTER_ABI,
+    functionName: "exactInputSingle",
+    args: [{
+      tokenIn: WPOL,
+      tokenOut: USDC_E,
+      fee: bestQuote.fee,
+      recipient: account,
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 300),
+      amountIn,
+      amountOutMinimum: minOut,
+      sqrtPriceLimitX96: 0n,
+    }],
+    value: amountIn,
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+
+  await writeJournal({
+    type: "pol_swapped",
+    message: `POL swapped to USDC.e for $${amountUsd.toFixed(2)} deposit`,
+    data: {
+      txHash: hash,
+      fee: bestQuote.fee,
+      amountInPol: formatEther(amountIn),
+      expectedUsdcE: formatUnits(expectedOut, 6),
+    },
+  });
+
+  return { txHash: hash, fee: bestQuote.fee, amountIn, expectedOut };
 }
 
 export async function withdrawPusdFromDepositWallet(amountUsd: number) {
@@ -482,6 +558,32 @@ export async function placeTokenOrder(params: {
     limitPrice,
     shares,
   };
+}
+
+async function quoteSpendablePolToUsdc(polRaw: bigint) {
+  if (polRaw <= POL_GAS_RESERVE) return 0n;
+  const quote = await quoteBestPolSwap(polRaw - POL_GAS_RESERVE);
+  return quote?.amountOut || 0n;
+}
+
+async function quoteBestPolSwap(amountIn: bigint) {
+  const quotes = await Promise.all(
+    POL_SWAP_FEES.map(async (fee) => ({
+      fee,
+      amountOut: await quotePolSwap(amountIn, fee).catch(() => 0n),
+    })),
+  );
+  return quotes.sort((a, b) => Number(b.amountOut - a.amountOut))[0] || null;
+}
+
+async function quotePolSwap(amountIn: bigint, fee: typeof POL_SWAP_FEES[number]) {
+  const publicClient = getPublicClient();
+  return await publicClient.readContract({
+    address: UNISWAP_QUOTER,
+    abi: UNISWAP_QUOTER_ABI,
+    functionName: "quoteExactInputSingle",
+    args: [WPOL, USDC_E, fee, amountIn, 0n],
+  }) as bigint;
 }
 
 function normalizePrice(price: number, tickSize: string) {

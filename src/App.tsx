@@ -52,7 +52,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedPrice = side === "YES" ? marketCheck?.yesPrice : marketCheck?.noPrice;
-  const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0);
+  const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
   const blockedReason = useMemo(() => {
     if (!env?.ok) return "SYS LOCK";
@@ -207,7 +207,7 @@ export default function App() {
     if (nextAction.action === "setup") return setupWallet();
     if (nextAction.action === "deposit") return deposit();
     if (nextAction.action === "fund") {
-      setNotice("Send POL for gas plus USDC.e or pUSD collateral to the bot wallet, then SYNC.");
+      setNotice("Send POL, USDC.e, or pUSD to the bot wallet, then SYNC.");
       return run("refresh", refreshWallet);
     }
     if (nextAction.action === "search") return searchMarkets();
@@ -332,6 +332,7 @@ export default function App() {
           <div className="kv"><span>BOT</span><strong>{short(wallet?.botAddress || "--")}</strong></div>
           <div className="kv"><span>DEPLOY</span><strong className={wallet?.depositWalletExists ? "good" : "bad"}>{wallet?.depositWalletExists ? short(wallet?.depositWallet || "") : "NO"}</strong></div>
           <div className="kv"><span>POL</span><strong>{(wallet?.polBalance || 0).toFixed(4)}</strong></div>
+          <div className="kv"><span>POL EST</span><strong>${(wallet?.polUsdcEstimate || 0).toFixed(2)}</strong></div>
           <div className="kv"><span>USDC.E</span><strong>{(wallet?.usdcBalance || 0).toFixed(2)}</strong></div>
           <div className="kv"><span>BOT PUSD</span><strong>{(wallet?.botPusdBalance || 0).toFixed(2)}</strong></div>
           <div className="kv"><span>DEPOSIT PUSD</span><strong>{(wallet?.pusdBalance || 0).toFixed(2)}</strong></div>

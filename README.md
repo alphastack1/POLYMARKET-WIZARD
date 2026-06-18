@@ -27,15 +27,20 @@ The seed phrase lives only in local/Netlify environment variables. The browser n
 Send funds to the bot wallet:
 
 ```txt
-POL:    for Polygon gas
+POL:    gas and optional source collateral
 USDC.e: collateral that the app can wrap into pUSD
+pUSD:   collateral that the app can transfer directly
 ```
 
 The app then:
 
 ```txt
+POL in bot wallet -> USDC.e in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
 USDC.e in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
+pUSD in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
 ```
+
+POL conversion uses the live Uniswap V3 quote at deposit time. The app keeps a gas reserve and refuses the deposit if the current POL balance cannot safely quote enough USDC.e for the requested USD amount.
 
 If you already have pUSD, you can send pUSD directly to the Polymarket deposit wallet and skip the deposit/wrap step.
 
@@ -92,9 +97,9 @@ Never commit `.env.local`.
 1. Open the app.
 2. Confirm `ENV` is ready.
 3. Click `ARM` to deploy and approve the Polymarket deposit wallet.
-4. Send a small POL gas balance plus USDC.e collateral to the bot wallet.
+4. Send POL, USDC.e, or pUSD to the bot wallet.
 5. Click `SYNC`.
-6. Click `DEPOSIT` to wrap USDC.e into pUSD in the deposit wallet.
+6. Click `DEPOSIT` to swap/wrap collateral into pUSD in the deposit wallet.
 7. Search a market.
 8. Pick YES or NO.
 9. Buy a small amount.

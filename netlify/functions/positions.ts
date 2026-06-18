@@ -1,4 +1,5 @@
-import { json } from "./_env";
+import { error, json } from "./_env";
+import { requireAuth } from "./_auth";
 import { getDepositWallet } from "./_polymarket";
 
 const DATA_API = "https://data-api.polymarket.com";
@@ -17,7 +18,13 @@ type PolyPosition = {
   outcome?: string;
 };
 
-export default async function handler() {
+export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
   const { address: depositWallet, exists } = await getDepositWallet();
   if (!exists) return json({ ok: true, positions: [] });
 

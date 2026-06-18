@@ -23,6 +23,9 @@ export type EnvCheck = {
   mode: string;
   rpcConfigured: boolean;
   fallbackCount: number;
+  authRequired?: boolean;
+  authenticated?: boolean;
+  sessionAddress?: string;
 };
 
 export type WalletStatus = {

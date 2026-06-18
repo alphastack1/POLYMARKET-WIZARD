@@ -1,99 +1,31 @@
 # Polymarket Wizard
 
-A React + Netlify trading console for a single guarded Polymarket hot wallet.
+A guarded Polymarket trading console for one server-side bot wallet.
 
-The app is built around one rule:
+The app can:
 
-```txt
-If the wizard is not sure, it refuses to trade.
-```
+- Search live Polymarket markets.
+- Quote POL dynamically before funding.
+- Deploy and approve a Polymarket deposit wallet.
+- Convert only the needed collateral into pUSD.
+- Place small guarded YES/NO trades through CLOB V2.
+- Sell positions and track a lightweight activity log.
+- Require the bot wallet to sign in before any funded action can run.
 
-## What It Does
+## Guide
 
-- Searches open Polymarket markets through Gamma.
-- Blocks closed, inactive, low-liquidity, wide-spread, expired, or missing-token markets.
-- Derives and deploys a Polymarket deposit wallet through the official relayer.
-- Sets max pUSD and CTF approvals from the deposit wallet.
-- Wraps bot-wallet USDC.e into pUSD and sends it to the deposit wallet.
-- Places CLOB V2 YES/NO buy orders from the deposit wallet.
-- Reads live positions from the Polymarket Data API.
-- Supports manual sells and 60-second stop-loss / take-profit polling.
-- Stores a small journal in Netlify Blobs.
+Read the full build and setup guide:
 
-## Funding Model
+[docs/polymarket-wizard-guide.md](docs/polymarket-wizard-guide.md)
 
-The seed phrase lives only in local/Netlify environment variables. The browser never sees it.
-
-Send funds to the bot wallet:
-
-```txt
-POL:    gas and optional source collateral
-USDC.e: collateral that the app can wrap into pUSD
-pUSD:   collateral that the app can transfer directly
-```
-
-The app then:
-
-```txt
-POL in bot wallet -> USDC.e in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
-USDC.e in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
-pUSD in bot wallet -> pUSD in Polymarket deposit wallet -> CLOB trade
-```
-
-POL conversion uses the live Uniswap V3 quote at deposit time. The app keeps a gas reserve and refuses the deposit if the current POL balance cannot safely quote enough USDC.e for the requested USD amount.
-
-If you already have pUSD, you can send pUSD directly to the Polymarket deposit wallet and skip the deposit/wrap step.
-
-## Local Setup
+## Local Run
 
 ```bash
 npm install
-cp .env.example .env.local
 npm run build
 npx netlify dev -d dist -f netlify/functions --port 8888
 ```
 
-Open:
-
-```txt
-http://localhost:8888
-```
-
-## Required Env Vars
-
-Server-side only:
-
-```txt
-POLYGON_RPC_URL
-POLYGON_RPC_FALLBACKS
-
-POLYMARKET_BUILDER_API_KEY
-POLYMARKET_BUILDER_SECRET
-POLYMARKET_BUILDER_PASSPHRASE
-POLYMARKET_BUILDER_CODE
-
-POLYMARKET_CLOB_API_KEY
-POLYMARKET_CLOB_SECRET
-POLYMARKET_CLOB_PASSPHRASE
-
-BOT_MNEMONIC
-BOT_ACCOUNT_INDEX
-```
+Open `http://localhost:8888`.
 
 Never commit `.env.local`.
-
-CLOB credentials must belong to this Wizard signer wallet. Derive them from `BOT_MNEMONIC`; do not reuse keys from any other project.
-
-## First Run
-
-1. Open the app.
-2. Confirm `ENV` is ready.
-3. Click `ARM` to deploy and approve the Polymarket deposit wallet.
-4. Send POL, USDC.e, or pUSD to the bot wallet.
-5. Click `SYNC`.
-6. Click `DEPOSIT` to swap/wrap collateral into pUSD in the deposit wallet.
-7. Search a market.
-8. Pick YES or NO.
-9. Buy a small amount.
-
-The first wallet deploy can take a little time to appear in Polymarket's registry. If `ARM` says the registry is syncing, wait a few seconds and click `ARM` again.

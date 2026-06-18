@@ -1,9 +1,16 @@
 import { error, envCheck, json, riskConfig } from "./_env";
+import { requireAuth } from "./_auth";
 import { writeJournal } from "./_journal";
 import { findMarket, validateMarket } from "./_market";
 import { getWalletStatusDetails, placeOrder } from "./_polymarket";
 
 export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
   const body = await req.json().catch(() => ({}));
   const env = envCheck();
   const risk = riskConfig();

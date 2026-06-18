@@ -1,7 +1,14 @@
-import { envCheck, json } from "./_env";
+import { envCheck, error, json } from "./_env";
+import { requireAuth } from "./_auth";
 import { getWalletStatusDetails } from "./_polymarket";
 
-export default async function handler() {
+export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
   const env = envCheck();
   if (!env.ok) {
     return json({

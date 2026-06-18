@@ -1,7 +1,12 @@
 export async function callApi<T>(name: string, body?: unknown): Promise<T> {
+  const token = localStorage.getItem("wizardSessionToken");
+  const headers: Record<string, string> = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const res = await fetch(`/.netlify/functions/${name}`, {
     method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 

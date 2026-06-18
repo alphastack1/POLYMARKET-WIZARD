@@ -1,8 +1,15 @@
 import { envCheck, error, json } from "./_env";
+import { requireAuth } from "./_auth";
 import { writeJournal } from "./_journal";
 import { approveDepositWalletForTrading, deployDepositWalletIfNeeded, getWalletStatusDetails, syncBalanceAllowance } from "./_polymarket";
 
-export default async function handler() {
+export default async function handler(req: Request) {
+  try {
+    requireAuth(req);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : String(err), 401);
+  }
+
   const env = envCheck();
   if (!env.ok) {
     return error(`Blocked: missing env vars: ${env.missing.join(", ")}`);

@@ -649,7 +649,10 @@ function clearSession(setSession: (session: AuthSession | null) => void) {
 }
 
 function cents(value?: number | null) {
-  return value ? `${Math.round(value * 100)}c` : "--";
+  if (!value) return "--";
+  const scaled = value * 100;
+  const rounded = Math.round(scaled);
+  return Math.abs(scaled - rounded) < 0.05 ? `${rounded}c` : `${scaled.toFixed(1)}c`;
 }
 
 function compactNumber(value: number) {

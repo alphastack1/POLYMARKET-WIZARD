@@ -121,6 +121,12 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    if (markets.length === 0 && !storedSelected) searchMarkets().catch(() => undefined);
+    // Run once on boot so the default market explorer is not empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const checkSelectedMarket = useCallback(async (market: Market | null) => {
     if (!market) return setMarketCheck(null);
     setMarketCheck(await callApi<MarketCheck>("market-check", { marketId: market.id }));
@@ -390,7 +396,7 @@ function Metric({ label, value, sub, tone }: { label: string; value: string; sub
 }
 
 function Num({ label, value, setValue, prefix = "", suffix = "" }: { label: string; value: number; setValue: (value: number) => void; prefix?: string; suffix?: string }) {
-  return <label className="num"><span>{label}</span><div>{prefix}<input type="number" min="0" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
+  return <label className="num"><span>{label}</span><div>{prefix}<input type="number" min="0" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
 }
 
 function Read({ label, value }: { label: string; value: string }) {

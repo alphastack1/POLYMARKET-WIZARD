@@ -271,7 +271,8 @@ export default function App() {
       return run("refresh", refreshProtected);
     }
     if (!selected || !marketLive?.ok) return searchMarkets();
-    return buy();
+    document.getElementById("trade-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setNotice("Review the order ticket, then press the Buy button when ready.");
   };
 
   useEffect(() => {
@@ -376,7 +377,7 @@ export default function App() {
           </div>
         </aside>
 
-        <section className="task-card">
+        <section className="task-card" id="trade-workspace">
           {stage === "unlock" && <UnlockPanel connect={connectWallet} />}
           {stage === "system" && <SystemPanel env={env} refresh={() => run("system", refreshEnv)} />}
           {stage === "arm" && <ArmPanel setupWallet={setupWallet} wallet={wallet} />}
@@ -522,7 +523,7 @@ function heroCopy(stage: string, wallet: WalletStatus | null, selected: Market |
     eyebrow: "Ready",
     title: selected?.question || "Ready to trade",
     body: `${selectedPrice ? `Current ${cents(selectedPrice)} ${selected ? "price" : ""}.` : "Live quote loaded."} Pick YES or NO, size the trade, then place the order.`,
-    action: "Place trade",
+    action: "Review order",
   };
 }
 

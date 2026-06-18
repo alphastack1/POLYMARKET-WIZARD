@@ -15,6 +15,9 @@ export function envCheck() {
     "POLYMARKET_BUILDER_SECRET",
     "POLYMARKET_BUILDER_PASSPHRASE",
     "POLYMARKET_BUILDER_CODE",
+    "POLYMARKET_CLOB_API_KEY",
+    "POLYMARKET_CLOB_SECRET",
+    "POLYMARKET_CLOB_PASSPHRASE",
     "BOT_MNEMONIC",
   ];
   const missing = required.filter((key) => !process.env[key]);

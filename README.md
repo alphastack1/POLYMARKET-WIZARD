@@ -72,13 +72,17 @@ POLYMARKET_BUILDER_SECRET
 POLYMARKET_BUILDER_PASSPHRASE
 POLYMARKET_BUILDER_CODE
 
+POLYMARKET_CLOB_API_KEY
+POLYMARKET_CLOB_SECRET
+POLYMARKET_CLOB_PASSPHRASE
+
 BOT_MNEMONIC
 BOT_ACCOUNT_INDEX
 ```
 
 Never commit `.env.local`.
 
-CLOB API credentials are not copied into env. The app creates or derives them from `BOT_MNEMONIC` at runtime so they belong to this Wizard signer wallet.
+CLOB credentials must belong to this Wizard signer wallet. Derive them from `BOT_MNEMONIC`; do not reuse keys from any other project.
 
 ## First Run
 

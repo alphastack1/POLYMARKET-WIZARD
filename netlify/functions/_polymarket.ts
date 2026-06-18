@@ -409,6 +409,15 @@ export async function withdrawPusdFromDepositWallet(amountUsd: number) {
 export async function getClobClient() {
   const walletClient = getWalletClient();
   const { address: depositWallet } = await getDepositWallet();
+  const envCreds = process.env.POLYMARKET_CLOB_API_KEY &&
+    process.env.POLYMARKET_CLOB_SECRET &&
+    process.env.POLYMARKET_CLOB_PASSPHRASE
+    ? {
+        key: process.env.POLYMARKET_CLOB_API_KEY,
+        secret: process.env.POLYMARKET_CLOB_SECRET,
+        passphrase: process.env.POLYMARKET_CLOB_PASSPHRASE,
+      }
+    : null;
 
   const bootstrap = new ClobClient({
     host: CLOB_HOST,
@@ -419,7 +428,7 @@ export async function getClobClient() {
     throwOnError: true,
     ...(process.env.POLYMARKET_BUILDER_CODE ? { builderConfig: { builderCode: process.env.POLYMARKET_BUILDER_CODE } } : {}),
   });
-  const generatedCreds = await bootstrap.createOrDeriveApiKey(0).catch(() => null);
+  const generatedCreds = envCreds || await deriveClobCreds(bootstrap);
   if (!generatedCreds) throw new Error("Could not create or derive CLOB API credentials for the bot wallet");
 
   return new ClobClient({
@@ -433,6 +442,16 @@ export async function getClobClient() {
     retryOnError: true,
     ...(process.env.POLYMARKET_BUILDER_CODE ? { builderConfig: { builderCode: process.env.POLYMARKET_BUILDER_CODE } } : {}),
   });
+}
+
+async function deriveClobCreds(client: ClobClient) {
+  const derived = await client.deriveApiKey(0).catch(() => null);
+  if (derived?.key && derived.secret && derived.passphrase) return derived;
+
+  const created = await client.createApiKey(0).catch(() => null);
+  if (created?.key && created.secret && created.passphrase) return created;
+
+  return null;
 }
 
 export async function syncBalanceAllowance() {

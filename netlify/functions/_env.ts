@@ -43,6 +43,7 @@ export function requireEnvReady() {
 export function riskConfig() {
   return {
     maxTradeUsd: 2,
+    minTradeUsd: 1.1,
     maxOpenPositions: 3,
     maxDailyLossUsd: 10,
     maxSpreadCents: 5,

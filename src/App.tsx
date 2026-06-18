@@ -41,7 +41,7 @@ export default function App() {
   const [selected, setSelected] = useState<Market | null>(storedSelected);
   const [marketCheck, setMarketCheck] = useState<MarketCheck | null>(null);
   const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
-  const [amount, setAmount] = useState(loadSetting("amount", 1));
+  const [amount, setAmount] = useState(loadSetting("amount", 1.1));
   const [stopLoss, setStopLoss] = useState(loadSetting("stopLoss", 20));
   const [takeProfit, setTakeProfit] = useState(loadSetting("takeProfit", 35));
   const [polling, setPolling] = useState(loadSetting("polling", false));
@@ -54,10 +54,14 @@ export default function App() {
   const selectedPrice = side === "YES" ? marketCheck?.yesPrice : marketCheck?.noPrice;
   const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
+  const tradeCollateralNeeded = Math.max(1.05, amount * 1.04);
+  const depositTopUp = Math.max(0, tradeCollateralNeeded - (wallet?.pusdBalance || 0));
+  const depositAmount = Math.max(1, Math.ceil(depositTopUp * 100) / 100);
+  const tradeFunded = Boolean(wallet?.readyToTrade && (wallet?.pusdBalance || 0) >= tradeCollateralNeeded);
   const blockedReason = useMemo(() => {
     if (!env?.ok) return "SYS LOCK";
-    if (!wallet?.readyToTrade) {
-      if (walletArmed && botCollateral >= amount) return "DEPOSIT";
+    if (!tradeFunded) {
+      if (walletArmed && botCollateral >= depositTopUp) return "DEPOSIT";
       if (walletArmed) return "FUND BOT";
       return "ARM WALLET";
     }
@@ -66,22 +70,22 @@ export default function App() {
     if (!selectedPrice) return "NO PRICE";
     if (!amount || amount <= 0) return "SIZE";
     return null;
-  }, [amount, botCollateral, env, marketCheck, selected, selectedPrice, wallet, walletArmed]);
+  }, [botCollateral, depositTopUp, env, marketCheck, selected, selectedPrice, tradeFunded, walletArmed]);
 
   const readinessScore = useMemo(() => {
-    const checks = [Boolean(env?.ok), Boolean(wallet?.readyToTrade), Boolean(selected && marketCheck?.ok), Boolean(selectedPrice), Boolean(positions.length || selected)];
+    const checks = [Boolean(env?.ok), tradeFunded, Boolean(selected && marketCheck?.ok), Boolean(selectedPrice), Boolean(positions.length || selected)];
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  }, [env, marketCheck, positions.length, selected, selectedPrice, wallet]);
+  }, [env, marketCheck, positions.length, selected, selectedPrice, tradeFunded]);
 
   const nextAction = useMemo(() => {
     if (!env?.ok) return { label: "CHECK", action: "env" as const, icon: ShieldCheck };
     if (!walletArmed) return { label: "ARM", action: "setup" as const, icon: Wallet };
-    if (!wallet?.readyToTrade && botCollateral >= amount) return { label: "DEPOSIT", action: "deposit" as const, icon: CircleDollarSign };
-    if (!wallet?.readyToTrade) return { label: "FUND BOT", action: "fund" as const, icon: Wallet };
+    if (!tradeFunded && botCollateral >= depositTopUp) return { label: "DEPOSIT", action: "deposit" as const, icon: CircleDollarSign };
+    if (!tradeFunded) return { label: "FUND BOT", action: "fund" as const, icon: Wallet };
     if (!selected) return { label: "SCAN", action: "search" as const, icon: Search };
     if (!marketCheck?.ok) return { label: "VERIFY", action: "market" as const, icon: ShieldCheck };
     return { label: blockedReason || `BUY ${side} $${amount}`, action: "buy" as const, icon: Flame };
-  }, [amount, blockedReason, botCollateral, env, marketCheck, selected, side, wallet, walletArmed]);
+  }, [amount, blockedReason, botCollateral, depositTopUp, env, marketCheck, selected, side, tradeFunded, walletArmed]);
 
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
@@ -136,7 +140,7 @@ export default function App() {
   });
 
   const deposit = () => run("deposit", async () => {
-    const data = await callApi<{ message: string; status?: WalletStatus }>("deposit", { amountUsd: amount });
+    const data = await callApi<{ message: string; status?: WalletStatus }>("deposit", { amountUsd: depositAmount });
     setNotice(data.message);
     if (data.status) setWallet(data.status);
     await refreshWallet();
@@ -215,7 +219,7 @@ export default function App() {
   useEffect(() => saveSetting("polling", polling), [polling]);
 
   useEffect(() => {
-    if (!polling || !env?.ok || !wallet?.readyToTrade || positions.length === 0) return;
+    if (!polling || !env?.ok || !tradeFunded || positions.length === 0) return;
     let running = false;
     async function tick() {
       if (running) return;
@@ -231,7 +235,7 @@ export default function App() {
     tick();
     const id = window.setInterval(tick, pollMs);
     return () => window.clearInterval(id);
-  }, [env, pollExits, polling, positions.length, wallet]);
+  }, [env, pollExits, polling, positions.length, tradeFunded]);
 
   const NextIcon = nextAction.icon;
 
@@ -245,7 +249,7 @@ export default function App() {
         </div>
         <div className="top-status">
           <StatusPill label="Env" value={env?.ok ? "Ready" : "Locked"} good={Boolean(env?.ok)} />
-          <StatusPill label="Wallet" value={wallet?.readyToTrade ? "Ready" : walletArmed ? "Fund" : "Arm"} good={Boolean(wallet?.readyToTrade)} />
+          <StatusPill label="Wallet" value={tradeFunded ? "Ready" : walletArmed ? "Fund" : "Arm"} good={tradeFunded} />
           <StatusPill label="Bot" value={short(env?.botAddress || wallet?.botAddress || "No wallet")} />
         </div>
         <button onClick={() => run("refresh", refreshAll)} disabled={Boolean(busy)}><RefreshCcw size={15} />Sync</button>
@@ -260,7 +264,7 @@ export default function App() {
 
       <section className="layout">
         <section className="metrics">
-          <Metric label="Deposit pUSD" value={`$${(wallet?.pusdBalance || 0).toFixed(2)}`} tone={wallet?.readyToTrade ? "good" : "warn"} />
+          <Metric label="Deposit pUSD" value={`$${(wallet?.pusdBalance || 0).toFixed(2)}`} sub={`Need $${tradeCollateralNeeded.toFixed(2)}`} tone={tradeFunded ? "good" : "warn"} />
           <Metric label="POL quote" value={`$${(wallet?.polUsdcEstimate || 0).toFixed(2)}`} sub={`${(wallet?.polBalance || 0).toFixed(4)} POL`} />
           <Metric label="Open positions" value={String(positions.length)} sub={`Exposure $${exposure.toFixed(2)}`} />
           <Metric label="PnL" value={`$${pnl.toFixed(2)}`} tone={pnl >= 0 ? "good" : "bad"} />
@@ -306,8 +310,8 @@ export default function App() {
           </div>
           <Num label="Trade amount" prefix="$" value={amount} setValue={setAmount} />
           <div className="quick-sizes">
-            {[1, 2, 5, 10].map((value) => (
-              <button key={value} className={amount === value ? "active" : ""} onClick={() => setAmount(value)}>${value}</button>
+            {[1.1, 2].map((value) => (
+              <button key={value} className={amount === value ? "active" : ""} onClick={() => setAmount(value)}>{money(value)}</button>
             ))}
           </div>
           <Read label="Limit price" value={cents(selectedPrice)} />
@@ -325,12 +329,12 @@ export default function App() {
         </aside>
 
         <section className="panel wallet-panel">
-          <Title icon={Wallet} k="FUNDING" v={wallet?.readyToTrade ? "Ready" : "Needed"} />
+          <Title icon={Wallet} k="FUNDING" v={tradeFunded ? "Ready" : "Needed"} />
           <WalletRows wallet={wallet} env={env} />
-          <FundingGauge balance={wallet?.pusdBalance || 0} target={amount || 1} />
+          <FundingGauge balance={wallet?.pusdBalance || 0} target={tradeCollateralNeeded} />
           <div className="stack">
             <button onClick={setupWallet}><LockKeyhole size={16} />Arm wallet</button>
-            <button onClick={deposit}><CircleDollarSign size={16} />Deposit ${amount}</button>
+            <button onClick={deposit}><CircleDollarSign size={16} />Deposit ${depositAmount.toFixed(2)}</button>
             <button onClick={withdraw}><ArrowRight size={16} />Withdraw ${amount}</button>
           </div>
         </section>
@@ -349,7 +353,7 @@ export default function App() {
             ))}
           </div>
           <label className="toggle">
-            <input type="checkbox" checked={polling} disabled={!env?.ok || !wallet?.readyToTrade || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
+            <input type="checkbox" checked={polling} disabled={!env?.ok || !tradeFunded || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
             <span>Auto-check exits every 60s</span>
           </label>
         </section>
@@ -479,6 +483,10 @@ function compactNumber(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return value.toFixed(0);
+}
+
+function money(value: number) {
+  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
 }
 
 function short(value: string) {

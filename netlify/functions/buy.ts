@@ -12,6 +12,7 @@ export default async function handler(req: Request) {
   if (!body.marketId) return error("Missing marketId");
   if (!["YES", "NO"].includes(body.side)) return error("Side must be YES or NO");
   if (!Number.isFinite(Number(body.amountUsd)) || Number(body.amountUsd) <= 0) return error("Invalid amount");
+  if (Number(body.amountUsd) < risk.minTradeUsd) return error(`Trade must be at least $${risk.minTradeUsd.toFixed(2)}`);
   if (Number(body.amountUsd) > risk.maxTradeUsd) return error(`Trade exceeds max size $${risk.maxTradeUsd}`);
 
   const market = await findMarket(String(body.marketId));

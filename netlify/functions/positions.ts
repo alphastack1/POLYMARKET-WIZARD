@@ -35,10 +35,13 @@ export default async function handler() {
   }
 
   const raw = await res.json().catch(() => []);
-  const positions = (Array.isArray(raw) ? raw : []).map((position: PolyPosition) => {
-    const avgPrice = Number(position.avgPrice || 0);
+  const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.value) ? raw.value : [];
+  const positions = rows.map((position: PolyPosition) => {
     const currentPrice = Number(position.curPrice || 0);
     const shares = Number(position.size || 0);
+    const avgPrice = Number(position.avgPrice || (position.initialValue && shares ? position.initialValue / shares : 0) || currentPrice || 0);
+    const value = Number(position.currentValue || currentPrice * shares || 0);
+    const pnl = Number(position.cashPnl ?? (value - avgPrice * shares) ?? 0);
     const side = position.outcome?.toUpperCase() === "NO" ? "NO" : "YES";
     return {
       id: `${position.conditionId || position.asset}-${side}`,
@@ -49,8 +52,8 @@ export default async function handler() {
       shares,
       avgPrice,
       currentPrice,
-      value: Number(position.currentValue || currentPrice * shares || 0),
-      pnl: Number(position.cashPnl || 0),
+      value,
+      pnl,
       stopLossPercent: 20,
       takeProfitPercent: 35,
       slug: position.slug,

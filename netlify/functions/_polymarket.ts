@@ -472,8 +472,9 @@ export async function placeOrder(params: {
   const status = await getWalletStatusDetails();
   if (!status.depositWalletExists) throw new Error("Deposit wallet not deployed");
   if (!status.approvalsReady) throw new Error("Deposit wallet approvals missing");
-  if (params.action === "buy" && status.pusdBalance < Number(params.amountUsd || 0)) {
-    throw new Error(`Deposit wallet has $${status.pusdBalance.toFixed(2)} pUSD; fund it before buying.`);
+  const requiredCollateral = Number(params.amountUsd || 0) * 1.04;
+  if (params.action === "buy" && status.pusdBalance < requiredCollateral) {
+    throw new Error(`Deposit wallet has $${status.pusdBalance.toFixed(2)} pUSD; needs about $${requiredCollateral.toFixed(2)} with fee buffer.`);
   }
 
   const tokenId = params.side === "YES" ? check.yesTokenId : check.noTokenId;
@@ -491,7 +492,7 @@ export async function placeOrder(params: {
   const amountUsd = Number(params.amountUsd || 0);
   const shares = params.action === "sell"
     ? Number(params.shares || 0)
-    : normalizeSize(amountUsd / limitPrice, tickSize);
+    : normalizeBuySize(amountUsd / limitPrice, tickSize);
   if (!Number.isFinite(shares) || shares <= 0) throw new Error("Invalid order size");
 
   const signedOrder = await client.createOrder(
@@ -531,8 +532,9 @@ export async function placeTokenOrder(params: {
   const status = await getWalletStatusDetails();
   if (!status.depositWalletExists) throw new Error("Deposit wallet not deployed");
   if (!status.approvalsReady) throw new Error("Deposit wallet approvals missing");
-  if (params.action === "buy" && status.pusdBalance < Number(params.amountUsd || 0)) {
-    throw new Error(`Deposit wallet has $${status.pusdBalance.toFixed(2)} pUSD; fund it before buying.`);
+  const requiredCollateral = Number(params.amountUsd || 0) * 1.04;
+  if (params.action === "buy" && status.pusdBalance < requiredCollateral) {
+    throw new Error(`Deposit wallet has $${status.pusdBalance.toFixed(2)} pUSD; needs about $${requiredCollateral.toFixed(2)} with fee buffer.`);
   }
 
   const client = await getClobClient();
@@ -544,7 +546,7 @@ export async function placeTokenOrder(params: {
   const amountUsd = Number(params.amountUsd || 0);
   const shares = params.action === "sell"
     ? Number(params.shares || 0)
-    : normalizeSize(amountUsd / limitPrice, tickSize);
+    : normalizeBuySize(amountUsd / limitPrice, tickSize);
   if (!Number.isFinite(shares) || shares <= 0) throw new Error("Invalid order size");
 
   const signedOrder = await client.createOrder(
@@ -609,6 +611,12 @@ function normalizeSize(size: number, tickSize: string) {
   const decimals = tickDecimals(tickSize);
   const factor = 10 ** decimals;
   return Math.floor(size * factor) / factor;
+}
+
+function normalizeBuySize(size: number, tickSize: string) {
+  const decimals = tickDecimals(tickSize);
+  const factor = 10 ** decimals;
+  return Math.ceil(size * factor) / factor;
 }
 
 function tickDecimals(tickSize: string) {

@@ -17,7 +17,7 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callApi } from "./api";
 import { loadSetting, saveSetting } from "./storage";
 import type { ReactNode } from "react";
@@ -104,10 +104,12 @@ export default function App() {
   const [wallet, setWallet] = useState<WalletStatus | null>(null);
   const [keyword, setKeyword] = useState(loadSetting("keyword", ""));
   const storedSelected = useMemo(() => loadSetting<Market | null>("selectedMarket", null), []);
+  const storedSide = useMemo(() => loadSetting<string | null>("side", null), []);
   const [markets, setMarkets] = useState<Market[]>(storedSelected ? [storedSelected] : []);
   const [selected, setSelected] = useState<Market | null>(storedSelected);
   const [marketLive, setMarketLive] = useState<MarketLive | null>(null);
-  const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
+  const [side, setSideState] = useState<"YES" | "NO">(isSide(storedSide) ? storedSide : "YES");
+  const [sidePreferenceLocked, setSidePreferenceLocked] = useState(isSide(storedSide));
   const [amount, setAmount] = useState(clampTradeAmount(loadSetting("amount", defaultRisk.minTradeUsd), defaultRisk));
   const [withdrawAmount, setWithdrawAmount] = useState(loadSetting("withdrawAmount", defaultRisk.minTradeUsd));
   const [polling, setPolling] = useState(loadSetting("polling", false));
@@ -119,6 +121,7 @@ export default function App() {
   const [booted, setBooted] = useState(false);
   const [marketSearchOpen, setMarketSearchOpen] = useState(!storedSelected);
   const [marketDataOpen, setMarketDataOpen] = useState(true);
+  const liveRequestRef = useRef(0);
   const [activeTab, setActiveTab] = useState<AppTab>(() => {
     const saved = loadSetting<string>("activeTab", "trade");
     return isAppTab(saved) ? saved : "trade";
@@ -203,6 +206,11 @@ export default function App() {
     }
   }, []);
 
+  const chooseSide = useCallback((nextSide: "YES" | "NO") => {
+    setSidePreferenceLocked(true);
+    setSideState(nextSide);
+  }, []);
+
   const refreshEnv = useCallback(async () => {
     const next = await callApi<EnvCheck>("env-check");
     setEnv(next);
@@ -225,9 +233,15 @@ export default function App() {
   }, [refreshEnv, refreshProtected]);
 
   const loadMarketLive = useCallback(async (market: Market | null, nextSide = side) => {
-    if (!market) return setMarketLive(null);
+    const requestId = liveRequestRef.current + 1;
+    liveRequestRef.current = requestId;
+    if (!market) {
+      if (requestId === liveRequestRef.current) setMarketLive(null);
+      return null;
+    }
     const live = await callApi<MarketLive>("market-live", { marketId: market.id, side: nextSide });
-    setMarketLive(live);
+    if (requestId === liveRequestRef.current) setMarketLive(live);
+    return live;
   }, [side]);
 
   const searchMarkets = async () => {
@@ -249,7 +263,11 @@ export default function App() {
     setSelected(market);
     setMarketSearchOpen(false);
     saveSetting("selectedMarket", market);
-    await run("market", () => loadMarketLive(market));
+    await run("market", async () => {
+      const live = await loadMarketLive(market);
+      const favorite = favoriteSide(live);
+      if (!sidePreferenceLocked && favorite) setSideState(favorite);
+    });
   };
 
   const connectWallet = () => run("unlock", async () => {
@@ -351,7 +369,9 @@ export default function App() {
     loadMarketLive(selected, side).catch(() => undefined);
   }, [loadMarketLive, selected, side]);
 
-  useEffect(() => saveSetting("side", side), [side]);
+  useEffect(() => {
+    if (sidePreferenceLocked) saveSetting("side", side);
+  }, [side, sidePreferenceLocked]);
   useEffect(() => saveSetting("activeTab", activeTab), [activeTab]);
   useEffect(() => {
     const clamped = clampTradeAmount(amount, risk);
@@ -489,7 +509,7 @@ export default function App() {
               marketDataOpen={marketDataOpen}
               setMarketDataOpen={setMarketDataOpen}
               side={side}
-              setSide={setSide}
+              setSide={chooseSide}
               amount={amount}
               setAmount={(value) => setAmount(clampTradeAmount(value, risk))}
               risk={risk}
@@ -528,7 +548,7 @@ export default function App() {
               amount={amount}
               setAmount={(value) => setAmount(clampTradeAmount(value, risk))}
               side={side}
-              setSide={setSide}
+              setSide={chooseSide}
               risk={risk}
               tradeCollateralNeeded={tradeCollateralNeeded}
               depositTopUp={depositTopUp}
@@ -1155,7 +1175,11 @@ function MarketData({ open, setOpen, marketLive, side }: {
       </button>
       {open && (
         <div className="data-grid">
-          <LiveChart history={marketLive?.history || []} yes={marketLive?.yesPrice} no={marketLive?.noPrice} />
+          <LiveChart
+            history={marketLive?.history || []}
+            side={side}
+            price={side === "YES" ? marketLive?.yesPrice : marketLive?.noPrice}
+          />
           <DepthBook side={side} levels={marketLive?.orderBook} />
           <TradeTape rows={marketLive?.trades || []} />
         </div>
@@ -1199,10 +1223,18 @@ function Empty({ text }: { text: string }) {
   return <div className="empty-state">{text}</div>;
 }
 
-function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; yes?: number; no?: number }) {
-  const points = history.slice(-80).map((point) => point.p);
-  const fallback = points.length < 2;
-  const values = fallback ? [yes || 0.5, yes || 0.5] : points;
+function LiveChart({ history, side, price }: { history: { t: number; p: number }[]; side: "YES" | "NO"; price?: number }) {
+  const values = history.slice(-80).map((point) => point.p);
+  const hasHistory = values.length >= 2;
+  if (!hasHistory) {
+    return (
+      <div className="chart-card">
+        <div className="chart-tabs"><span>{side} price history</span><span>{cents(price)}</span></div>
+        <Empty text="No recent CLOB price history" />
+      </div>
+    );
+  }
+
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(0.01, max - min);
@@ -1214,12 +1246,11 @@ function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; 
 
   return (
     <div className="chart-card">
-      <div className="chart-tabs"><span>YES {cents(yes)}</span><span>NO {cents(no)}</span></div>
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="live CLOB price history">
+      <div className="chart-tabs"><span>{side} 24h CLOB history</span><span>{cents(price)}</span></div>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label={`${side} CLOB price history`}>
         <path d={`${d} L 100 100 L 0 100 Z`} className="chart-fill" />
         <path d={d} className="chart-line" />
       </svg>
-      {fallback && <small>No recent history</small>}
     </div>
   );
 }
@@ -1347,6 +1378,15 @@ function formatDate(value?: string | null) {
 function short(value: string) {
   if (!value || value === "unknown") return value || "--";
   return value.length > 16 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+}
+
+function isSide(value: string | null): value is "YES" | "NO" {
+  return value === "YES" || value === "NO";
+}
+
+function favoriteSide(live: MarketLive | null) {
+  if (!live?.ok || !Number.isFinite(live.yesPrice) || !Number.isFinite(live.noPrice)) return null;
+  return Number(live.yesPrice) >= Number(live.noPrice) ? "YES" : "NO";
 }
 
 function isAppTab(value: string): value is AppTab {

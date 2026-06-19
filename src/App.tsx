@@ -8,6 +8,8 @@ import {
   KeyRound,
   LockKeyhole,
   LogOut,
+  Minus,
+  Plus,
   RefreshCcw,
   Search,
   ShieldCheck,
@@ -63,8 +65,8 @@ type MarketLive = {
   liveErrors?: string[];
 };
 
-type Stage = "loading" | "unlock" | "system" | "arm" | "fund" | "market" | "trade";
 type RiskLimits = NonNullable<EnvCheck["risk"]>;
+type DeskTab = "positions" | "activity";
 
 declare global {
   interface Window {
@@ -99,50 +101,44 @@ export default function App() {
   const [marketLive, setMarketLive] = useState<MarketLive | null>(null);
   const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
   const [amount, setAmount] = useState(clampTradeAmount(loadSetting("amount", defaultRisk.minTradeUsd), defaultRisk));
-  const [stopLoss, setStopLoss] = useState(loadSetting("stopLoss", 20));
-  const [takeProfit, setTakeProfit] = useState(loadSetting("takeProfit", 35));
+  const [withdrawAmount, setWithdrawAmount] = useState(loadSetting("withdrawAmount", defaultRisk.minTradeUsd));
   const [polling, setPolling] = useState(loadSetting("polling", false));
   const [positions, setPositions] = useState<Position[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [booted, setBooted] = useState(false);
+  const [marketSearchOpen, setMarketSearchOpen] = useState(!storedSelected);
+  const [marketDataOpen, setMarketDataOpen] = useState(false);
+  const [deskTab, setDeskTab] = useState<DeskTab>("positions");
 
   const hasSession = Boolean(session?.token && session.expiresAt > Date.now());
   const isUnlocked = Boolean(hasSession && env?.authenticated);
   const risk = env?.risk || defaultRisk;
-  const waitingForWallet = Boolean(isUnlocked && wallet === null);
   const selectedPrice = side === "YES" ? marketLive?.yesPrice : marketLive?.noPrice;
-  const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
+  const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const tradeCollateralNeeded = Math.max(risk.minTradeUsd * 1.04, amount * 1.04);
   const depositTopUp = Math.max(0, tradeCollateralNeeded - (wallet?.pusdBalance || 0));
-  const depositAmount = Math.min(risk.maxFundingUsd, Math.max(1, Math.ceil(depositTopUp * 100) / 100));
+  const depositAmount = depositTopUp > 0
+    ? Math.min(risk.maxFundingUsd, Math.max(1, Math.ceil(depositTopUp * 100) / 100))
+    : 0;
   const tradeFunded = Boolean(wallet?.readyToTrade && (wallet?.pusdBalance || 0) >= tradeCollateralNeeded);
+  const marketReady = Boolean(selected && marketLive?.ok);
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
-
-  const stage = useMemo<Stage>(() => {
-    if (!booted || waitingForWallet) return "loading";
-    if (!isUnlocked) return "unlock";
-    if (!env?.ok) return "system";
-    if (!walletArmed) return "arm";
-    if (!tradeFunded) return "fund";
-    if (!selected || !marketLive?.ok) return "market";
-    return "trade";
-  }, [booted, env?.ok, isUnlocked, marketLive?.ok, selected, tradeFunded, waitingForWallet, walletArmed]);
-
-  const stepItems = [
-    { key: "unlock", label: "Unlock", done: booted && isUnlocked },
-    { key: "arm", label: "Arm", done: booted && isUnlocked && walletArmed },
-    { key: "fund", label: "Fund", done: booted && isUnlocked && walletArmed && tradeFunded },
-    { key: "market", label: "Market", done: booted && isUnlocked && walletArmed && tradeFunded && Boolean(selected && marketLive?.ok) },
-    { key: "trade", label: "Trade", done: booted && stage === "trade" },
-  ];
-
-  const hero = heroCopy(stage, wallet, selected, selectedPrice);
+  const buyBlock = buyBlockReason({
+    booted,
+    env,
+    isUnlocked,
+    wallet,
+    walletArmed,
+    tradeFunded,
+    selected,
+    marketLive,
+    selectedPrice,
+  });
 
   const run = useCallback(async <T,>(label: string, task: () => Promise<T>) => {
     setBusy(label);
@@ -190,15 +186,19 @@ export default function App() {
     await run("scan", async () => {
       const data = await callApi<{ ok: true; markets: Market[] }>(`search-markets?q=${encodeURIComponent(keyword)}`);
       setMarkets(data.markets);
-      const firstTradeable = data.markets.find((market) => !market.disabledReason);
-      if ((!selected || selected.disabledReason) && firstTradeable) await selectMarket(firstTradeable);
-      setNotice(`${data.markets.length} market${data.markets.length === 1 ? "" : "s"} found`);
+      setMarketSearchOpen(true);
+      if (!selected) {
+        const firstTradeable = data.markets.find((market) => !market.disabledReason);
+        if (firstTradeable) await selectMarket(firstTradeable);
+      }
+      setNotice(`${data.markets.length} market${data.markets.length === 1 ? "" : "s"}`);
     });
   };
 
   const selectMarket = async (market: Market) => {
     if (market.disabledReason) return;
     setSelected(market);
+    setMarketSearchOpen(false);
     saveSetting("selectedMarket", market);
     await run("market", () => loadMarketLive(market));
   };
@@ -221,7 +221,7 @@ export default function App() {
     const next = { token: verified.token, address: verified.address, expiresAt: verified.expiresAt };
     saveSession(next);
     setSession(next);
-    setNotice("Wizard wallet unlocked.");
+    setNotice("Unlocked");
     await refreshAll();
   });
 
@@ -232,6 +232,7 @@ export default function App() {
   });
 
   const deposit = () => run("deposit", async () => {
+    if (!depositAmount) return;
     const data = await callApi<{ message: string; status?: WalletStatus }>("deposit", { amountUsd: depositAmount });
     setNotice(data.message);
     if (data.status) setWallet(data.status);
@@ -239,7 +240,7 @@ export default function App() {
   });
 
   const withdraw = () => run("withdraw", async () => {
-    const data = await callApi<{ message: string; status?: WalletStatus }>("withdraw", { amountUsd: amount });
+    const data = await callApi<{ message: string; status?: WalletStatus }>("withdraw", { amountUsd: withdrawAmount });
     setNotice(data.message);
     if (data.status) setWallet(data.status);
     await refreshProtected();
@@ -280,21 +281,6 @@ export default function App() {
     await refreshProtected();
   }, [refreshProtected]);
 
-  const runPrimary = () => {
-    if (stage === "loading") return run("sync", refreshAll);
-    if (!isUnlocked) return connectWallet();
-    if (!env?.ok) return run("system", refreshEnv);
-    if (!walletArmed) return setupWallet();
-    if (!tradeFunded && botCollateral >= depositTopUp) return deposit();
-    if (!tradeFunded) {
-      setNotice("Send POL to the bot wallet, then Sync. The app swaps only what it needs.");
-      return run("refresh", refreshProtected);
-    }
-    if (!selected || !marketLive?.ok) return searchMarkets();
-    document.getElementById("trade-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setNotice("Review the order ticket, then press the Buy button when ready.");
-  };
-
   useEffect(() => {
     let cancelled = false;
     refreshAll()
@@ -322,8 +308,7 @@ export default function App() {
     if (clamped !== amount) setAmount(clamped);
     else saveSetting("amount", amount);
   }, [amount, risk.maxTradeUsd, risk.minTradeUsd]);
-  useEffect(() => saveSetting("stopLoss", stopLoss), [stopLoss]);
-  useEffect(() => saveSetting("takeProfit", takeProfit), [takeProfit]);
+  useEffect(() => saveSetting("withdrawAmount", withdrawAmount), [withdrawAmount]);
   useEffect(() => saveSetting("polling", polling), [polling]);
 
   useEffect(() => {
@@ -354,7 +339,7 @@ export default function App() {
     const scroller = () => document.scrollingElement || document.documentElement;
     const isInteractive = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return false;
-      return Boolean(target.closest("button, a, input, textarea, select, label, [role='button'], .progress-strip"));
+      return Boolean(target.closest("button, a, input, textarea, select, label, summary, [role='button']"));
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -398,371 +383,278 @@ export default function App() {
   }, []);
 
   return (
-    <main className="app-shell">
-      <header className="app-top">
-        <div className="brand-block">
-          <div className="brand-mark"><Bot size={19} /></div>
-          <div>
-            <strong>Polymarket Wizard</strong>
-            <span>{isUnlocked ? short(session?.address || "") : "Guarded trading console"}</span>
-          </div>
-        </div>
-        <div className="top-actions">
-          <button onClick={() => run("sync", refreshAll)} disabled={Boolean(busy)}><RefreshCcw size={15} />Sync</button>
-          {isUnlocked ? (
-            <button onClick={() => clearSession(setSession)}><LogOut size={15} />Lock</button>
-          ) : (
-            <button className="green-button" onClick={connectWallet}><KeyRound size={15} />Unlock</button>
-          )}
-        </div>
-      </header>
+    <main className="wizard-shell">
+      <TopBar
+        address={session?.address}
+        unlocked={isUnlocked}
+        busy={busy}
+        connectWallet={connectWallet}
+        lock={() => clearSession(setSession)}
+        sync={() => run("sync", refreshAll)}
+      />
 
-      {(error || notice) && (
-        <section className={error ? "alert error" : "alert ok"}>
-          {error ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
-          <span>{error || notice}</span>
-        </section>
-      )}
+      {(error || notice) && <Toast tone={error ? "bad" : "good"}>{error || notice}</Toast>}
 
-      <section className="hero-card">
-        <div>
-          <span className="eyebrow">{hero.eyebrow}</span>
-          <h1>{hero.title}</h1>
-          <p>{hero.body}</p>
-        </div>
-        <button className="primary-action" onClick={runPrimary} disabled={Boolean(busy)}>
-          {busy ? busyLabel(busy) : hero.action}
-          <ArrowRight size={18} />
-        </button>
-      </section>
+      <section className="workbench">
+        <AccountRail
+          booted={booted}
+          env={env}
+          wallet={wallet}
+          unlocked={isUnlocked}
+          walletArmed={walletArmed}
+          tradeFunded={tradeFunded}
+          marketReady={marketReady}
+          amount={amount}
+          tradeCollateralNeeded={tradeCollateralNeeded}
+          depositTopUp={depositTopUp}
+          depositAmount={depositAmount}
+          botCollateral={botCollateral}
+          busy={busy}
+          setupWallet={setupWallet}
+          deposit={deposit}
+          withdraw={withdraw}
+          withdrawAmount={withdrawAmount}
+          setWithdrawAmount={setWithdrawAmount}
+        />
 
-      <section className="progress-strip">
-        {stepItems.map((step, index) => (
-          <div className={step.done ? "progress-step done" : step.key === stage ? "progress-step active" : "progress-step"} key={step.key}>
-            <b>{index + 1}</b>
-            <span>{step.label}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="guided-layout">
-        <aside className="side-card">
-          <WalletSummary
-            env={env}
-            wallet={wallet}
-            unlocked={isUnlocked}
-            walletArmed={walletArmed}
-            tradeFunded={tradeFunded}
+        <section className="trade-desk">
+          <MarketDesk
+            keyword={keyword}
+            setKeyword={setKeyword}
+            searchMarkets={searchMarkets}
+            busy={busy}
+            markets={markets}
+            selected={selected}
+            marketLive={marketLive}
+            open={marketSearchOpen}
+            setOpen={setMarketSearchOpen}
+            selectMarket={selectMarket}
           />
-          <div className="side-actions">
-            <button onClick={setupWallet} disabled={!isUnlocked || walletArmed || Boolean(busy)}><LockKeyhole size={16} />Arm wallet</button>
-            <button onClick={deposit} disabled={!isUnlocked || !walletArmed || tradeFunded || Boolean(busy)}><ArrowDownToLine size={16} />Deposit {money(depositAmount)}</button>
-            <button onClick={withdraw} disabled={!isUnlocked || !walletArmed || Boolean(busy)}><Wallet size={16} />Withdraw</button>
-          </div>
-        </aside>
 
-        <section className="task-card" id="trade-workspace">
-          {stage === "unlock" && <UnlockPanel connect={connectWallet} />}
-          {stage === "loading" && <LoadingPanel />}
-          {stage === "system" && <SystemPanel env={env} refresh={() => run("system", refreshEnv)} />}
-          {stage === "arm" && <ArmPanel setupWallet={setupWallet} wallet={wallet} />}
-          {stage === "fund" && (
-            <FundPanel
-              wallet={wallet}
-              depositAmount={depositAmount}
-              deposit={deposit}
-              refresh={() => run("sync", refreshAll)}
-            />
-          )}
-          {stage === "market" && (
-            <MarketPicker
-              keyword={keyword}
-              setKeyword={setKeyword}
-              searchMarkets={searchMarkets}
-              busy={busy}
-              markets={markets}
-              selected={selected}
-              selectMarket={selectMarket}
-            />
-          )}
-          {stage === "trade" && (
-            <TradePanel
-              selected={selected}
-              marketLive={marketLive}
-              side={side}
-              setSide={setSide}
-              amount={amount}
-              setAmount={(value) => setAmount(clampTradeAmount(value, risk))}
-              risk={risk}
-              selectedPrice={selectedPrice}
-              tradeCollateralNeeded={tradeCollateralNeeded}
-              stopLoss={stopLoss}
-              setStopLoss={setStopLoss}
-              takeProfit={takeProfit}
-              setTakeProfit={setTakeProfit}
-              buy={buy}
-              busy={busy}
-              openMarketPicker={() => {
-                setSelected(null);
-                setMarketLive(null);
-              }}
-            />
-          )}
+          <OrderTicket
+            selected={selected}
+            marketLive={marketLive}
+            side={side}
+            setSide={setSide}
+            amount={amount}
+            setAmount={(value) => setAmount(clampTradeAmount(value, risk))}
+            risk={risk}
+            selectedPrice={selectedPrice}
+            tradeCollateralNeeded={tradeCollateralNeeded}
+            wallet={wallet}
+            buy={buy}
+            buyBlock={buyBlock}
+            busy={busy}
+          />
+
+          <MarketData
+            open={marketDataOpen}
+            setOpen={setMarketDataOpen}
+            marketLive={marketLive}
+            side={side}
+          />
         </section>
+
+        <SideDesk
+          tab={deskTab}
+          setTab={setDeskTab}
+          positions={positions}
+          journal={journal}
+          wallet={wallet}
+          unlocked={isUnlocked}
+          exposure={exposure}
+          pnl={pnl}
+          sell={sell}
+          polling={polling}
+          setPolling={setPolling}
+          tradeFunded={tradeFunded}
+        />
       </section>
-
-      <section className="below-grid">
-        <section className="panel positions-card">
-          <PanelTitle icon={<Wallet size={16} />} label="Positions" value={isUnlocked ? `${positions.length} open` : "Locked"} />
-          <div className="metric-row">
-            <Metric label="Exposure" value={isUnlocked ? money(exposure) : "--"} />
-            <Metric label="P&L" value={isUnlocked ? signedMoney(pnl) : "--"} tone={pnl >= 0 ? "good" : "bad"} />
-            <Metric label="pUSD" value={isUnlocked ? money(wallet?.pusdBalance || 0) : "--"} />
-          </div>
-          <div className="position-list">
-            {!isUnlocked && <Empty text="Unlock to view positions" />}
-            {isUnlocked && positions.length === 0 && <Empty text="No open positions" />}
-            {positions.map((position) => (
-              <article className="position-row" key={position.id}>
-                <div>
-                  <strong>{position.question}</strong>
-                  <span>{position.side} / {position.shares.toFixed(2)} shares / {cents(position.currentPrice)}</span>
-                </div>
-                <b className={position.pnl >= 0 ? "good" : "bad"}>{signedMoney(position.pnl)}</b>
-                <button onClick={() => sell(position)}>Sell</button>
-              </article>
-            ))}
-          </div>
-          <label className="toggle-row">
-            <input type="checkbox" checked={exitAutomationEnabled && polling} disabled={!exitAutomationEnabled || !isUnlocked || !tradeFunded || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
-            <span>{exitAutomationEnabled ? "Auto-check stop / take-profit every 60s" : "Auto exits unavailable in this build"}</span>
-          </label>
-        </section>
-
-        <section className="panel journal-card">
-          <PanelTitle icon={<ShieldCheck size={16} />} label="Activity" value={isUnlocked ? String(journal.length) : "Locked"} />
-          <div className="journal-list">
-            {!isUnlocked && <Empty text="Unlock to view activity" />}
-            {isUnlocked && journal.length === 0 && <Empty text="No activity yet" />}
-            {journal.slice(0, 8).map((entry) => (
-              <div className="journal-row" key={entry.id}>
-                <span>{new Date(entry.at).toLocaleTimeString()}</span>
-                <strong>{entry.type}</strong>
-                <p>{entry.message}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      {selected && (
-        <section className="details-card">
-          <button className="details-toggle" onClick={() => setDetailsOpen((value) => !value)}>
-            <span>Market details</span>
-            <ChevronDown className={detailsOpen ? "open" : ""} size={17} />
-          </button>
-          {detailsOpen && (
-            <div className="details-grid">
-              <LiveChart history={marketLive?.history || []} yes={marketLive?.yesPrice} no={marketLive?.noPrice} />
-              <DepthBook side={side} levels={marketLive?.orderBook} />
-              <TradeTape rows={marketLive?.trades || []} />
-            </div>
-          )}
-        </section>
-      )}
     </main>
   );
 }
 
-function heroCopy(stage: Stage, wallet: WalletStatus | null, selected: Market | null, selectedPrice?: number) {
-  if (stage === "loading") return {
-    eyebrow: "Checking",
-    title: "Syncing account",
-    body: "Configuration, balances, approvals, and market data are being refreshed.",
-    action: "Sync status",
-  };
-  if (stage === "unlock") return {
-    eyebrow: "Step 1",
-    title: "Unlock the bot wallet",
-    body: "Connect the wallet that owns this Wizard.",
-    action: "Unlock wallet",
-  };
-  if (stage === "system") return {
-    eyebrow: "System check",
-    title: "Configuration needs attention",
-    body: "Required server-side configuration is missing.",
-    action: "Check system",
-  };
-  if (stage === "arm") return {
-    eyebrow: "Step 2",
-    title: "Arm the deposit wallet",
-    body: "The Polymarket deposit wallet needs deployment or approvals.",
-    action: "Arm wallet",
-  };
-  if (stage === "fund") return {
-    eyebrow: "Step 3",
-    title: "Fund the trading wallet",
-    body: wallet?.reason || "Send POL to the bot wallet, then deposit the needed collateral into the Polymarket wallet.",
-    action: "Deposit pUSD",
-  };
-  if (stage === "market") return {
-    eyebrow: "Step 4",
-    title: "Choose a tradeable market",
-    body: "Search, select, then review the live order ticket.",
-    action: "Search markets",
-  };
-  return {
-    eyebrow: "Ready",
-    title: selected?.question || "Ready to trade",
-    body: `${selectedPrice ? `Live ${cents(selectedPrice)} ${selected ? "quote" : ""}.` : "Live quote loaded."} Review size, shares, and guardrails before buying.`,
-    action: "Review order",
-  };
-}
-
-function LoadingPanel() {
+function TopBar({ address, unlocked, busy, connectWallet, lock, sync }: {
+  address?: string;
+  unlocked: boolean;
+  busy: string | null;
+  connectWallet: () => void;
+  lock: () => void;
+  sync: () => void;
+}) {
   return (
-    <div className="simple-panel">
-      <RefreshCcw className="spin" size={34} />
-      <h2>Checking the setup</h2>
-      <p>Hold on while the app confirms the environment, wallet, balances, approvals, and market data.</p>
-    </div>
+    <header className="topbar">
+      <div className="brand">
+        <div className="brand-icon"><Bot size={18} /></div>
+        <div>
+          <strong>Polymarket Wizard</strong>
+          <span>{unlocked ? short(address || "") : "Locked"}</span>
+        </div>
+      </div>
+      <div className="topbar-actions">
+        <button className="icon-button" onClick={sync} disabled={Boolean(busy)}><RefreshCcw size={15} />Sync</button>
+        {unlocked ? (
+          <button className="icon-button" onClick={lock}><LogOut size={15} />Lock</button>
+        ) : (
+          <button className="solid-button" onClick={connectWallet}><KeyRound size={15} />Unlock</button>
+        )}
+      </div>
+    </header>
   );
 }
 
-function WalletSummary({ env, wallet, unlocked, walletArmed, tradeFunded }: {
+function AccountRail(props: {
+  booted: boolean;
   env: EnvCheck | null;
   wallet: WalletStatus | null;
   unlocked: boolean;
   walletArmed: boolean;
   tradeFunded: boolean;
-}) {
-  return (
-    <div className="wallet-summary">
-      <PanelTitle icon={<ShieldCheck size={16} />} label="Account" value={unlocked ? "Unlocked" : "Locked"} />
-      <div className="status-stack">
-        <StatusTile label="Env" value={env?.ok ? "Ready" : "Check"} good={Boolean(env?.ok)} />
-        <StatusTile label="Wallet" value={!unlocked ? "Locked" : walletArmed ? "Armed" : "Needs arm"} good={unlocked && walletArmed} />
-        <StatusTile label="Trade funds" value={unlocked ? money(wallet?.pusdBalance || 0) : "--"} good={unlocked && tradeFunded} />
-      </div>
-      {unlocked && (
-        <details className="wallet-drawer">
-          <summary>
-            <span>Wallet balances</span>
-            <ChevronDown size={15} />
-          </summary>
-          <div className="wallet-lines">
-            <span>Bot <b>{short(wallet?.botAddress || "")}</b></span>
-            <span>POL quote <b>{money(wallet?.polUsdcEstimate || 0)}</b></span>
-            <span>USDC.e <b>{money(wallet?.usdcBalance || 0)}</b></span>
-          </div>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function UnlockPanel({ connect }: { connect: () => void }) {
-  return (
-    <div className="simple-panel">
-      <KeyRound size={34} />
-      <h2>Start with one signature</h2>
-      <p>The app will ask your wallet to sign a login message. It does not spend funds.</p>
-      <button className="primary-action" onClick={connect}>Unlock wallet <ArrowRight size={18} /></button>
-    </div>
-  );
-}
-
-function SystemPanel({ env, refresh }: { env: EnvCheck | null; refresh: () => void }) {
-  return (
-    <div className="simple-panel">
-      <XCircle size={34} />
-      <h2>Missing configuration</h2>
-      <p>{env?.missing?.length ? env.missing.join(", ") : "Run a sync after checking Netlify environment variables."}</p>
-      <button className="primary-action" onClick={refresh}>Sync again <RefreshCcw size={18} /></button>
-    </div>
-  );
-}
-
-function ArmPanel({ setupWallet, wallet }: { setupWallet: () => void; wallet: WalletStatus | null }) {
-  return (
-    <div className="simple-panel">
-      <LockKeyhole size={34} />
-      <h2>Prepare the Polymarket wallet</h2>
-      <p>{wallet?.reason || "This deploys the deposit wallet and sets max approvals so future trades do not keep asking for setup."}</p>
-      <button className="primary-action" onClick={setupWallet}>Arm wallet <ArrowRight size={18} /></button>
-    </div>
-  );
-}
-
-function FundPanel({ wallet, depositAmount, deposit, refresh }: {
-  wallet: WalletStatus | null;
+  marketReady: boolean;
+  amount: number;
+  tradeCollateralNeeded: number;
+  depositTopUp: number;
   depositAmount: number;
+  botCollateral: number;
+  busy: string | null;
+  setupWallet: () => void;
   deposit: () => void;
-  refresh: () => void;
+  withdraw: () => void;
+  withdrawAmount: number;
+  setWithdrawAmount: (value: number) => void;
 }) {
+  const canTopUp = props.unlocked && props.walletArmed && !props.tradeFunded && props.depositAmount > 0 && props.botCollateral >= props.depositAmount;
+  const canWithdraw = props.unlocked && props.walletArmed && (props.wallet?.pusdBalance || 0) > 0 && props.withdrawAmount > 0 && !props.busy;
+
   return (
-    <div className="fund-panel">
-      <div>
-        <span className="eyebrow">Bot wallet</span>
-        <h2>{short(wallet?.botAddress || "No wallet")}</h2>
-        <p>Send POL here, sync, then deposit only what the next trade needs.</p>
+    <aside className="account-rail">
+      <PanelHeader icon={<ShieldCheck size={16} />} title="Account" value={props.unlocked ? "Unlocked" : "Locked"} />
+      <div className="readiness-list">
+        <ReadyRow label="System" ready={props.booted && Boolean(props.env?.ok)} value={props.env?.ok ? "Ready" : "Check"} />
+        <ReadyRow label="Session" ready={props.unlocked} value={props.unlocked ? "Signed" : "Locked"} />
+        <ReadyRow label="Wallet" ready={props.unlocked && props.walletArmed} value={props.walletArmed ? "Armed" : "Setup"} />
+        <ReadyRow label="Funds" ready={props.unlocked && props.tradeFunded} value={props.unlocked ? money(props.wallet?.pusdBalance || 0) : "--"} />
+        <ReadyRow label="Market" ready={props.marketReady} value={props.marketReady ? "Live" : "Select"} />
       </div>
-      <div className="metric-row">
-        <Metric label="POL quote" value={money(wallet?.polUsdcEstimate || 0)} />
-        <Metric label="USDC.e" value={money(wallet?.usdcBalance || 0)} />
-        <Metric label="Deposit pUSD" value={money(wallet?.pusdBalance || 0)} />
-      </div>
-      <div className="button-row">
-        <button onClick={refresh}><RefreshCcw size={16} />Sync</button>
-        <button className="green-button" onClick={deposit}>Deposit {money(depositAmount)} <ArrowRight size={16} /></button>
-      </div>
-    </div>
+
+      <section className="funding-block">
+        <div className="funding-head">
+          <span>Trading wallet</span>
+          <strong>{props.tradeFunded ? "Ready" : "Needs funds"}</strong>
+        </div>
+        <div className="funding-bars">
+          <KeyValue label="Available" value={props.unlocked ? money(props.wallet?.pusdBalance || 0) : "--"} />
+          <KeyValue label="Required" value={money(props.tradeCollateralNeeded)} />
+          {!props.tradeFunded && <KeyValue label="Top-up" value={money(props.depositAmount)} />}
+        </div>
+        {!props.walletArmed && (
+          <button className="solid-button wide" onClick={props.setupWallet} disabled={!props.unlocked || Boolean(props.busy)}>
+            <LockKeyhole size={15} />Arm wallet
+          </button>
+        )}
+        {props.walletArmed && !props.tradeFunded && (
+          <button className="solid-button wide" onClick={props.deposit} disabled={!canTopUp || Boolean(props.busy)}>
+            <ArrowDownToLine size={15} />Top up pUSD
+          </button>
+        )}
+      </section>
+
+      <details className="rail-details">
+        <summary><span>Balances</span><ChevronDown size={15} /></summary>
+        <div className="detail-lines">
+          <KeyValue label="Bot" value={short(props.wallet?.botAddress || "")} />
+          <KeyValue label="POL quote" value={money(props.wallet?.polUsdcEstimate || 0)} />
+          <KeyValue label="USDC.e" value={money(props.wallet?.usdcBalance || 0)} />
+          <KeyValue label="pUSD" value={money(props.wallet?.pusdBalance || 0)} />
+        </div>
+      </details>
+
+      <details className="rail-details">
+        <summary><span>Withdraw</span><ChevronDown size={15} /></summary>
+        <div className="withdraw-line">
+          <label>
+            <span>Amount</span>
+            <input type="number" min="0.01" step="0.01" value={props.withdrawAmount} onChange={(event) => props.setWithdrawAmount(Number(event.target.value))} />
+          </label>
+          <button className="icon-button" onClick={props.withdraw} disabled={!canWithdraw}>
+            <Wallet size={15} />Send
+          </button>
+        </div>
+      </details>
+    </aside>
   );
 }
 
-function MarketPicker({ keyword, setKeyword, searchMarkets, busy, markets, selected, selectMarket }: {
+function MarketDesk(props: {
   keyword: string;
   setKeyword: (value: string) => void;
   searchMarkets: () => void;
   busy: string | null;
   markets: Market[];
   selected: Market | null;
+  marketLive: MarketLive | null;
+  open: boolean;
+  setOpen: (open: boolean) => void;
   selectMarket: (market: Market) => void;
 }) {
   return (
-    <div className="market-picker">
-      <div className="section-head">
+    <section className="market-desk">
+      <div className="desk-head">
         <div>
-          <span className="eyebrow">Markets</span>
-          <h2>Find a tradeable market</h2>
+          <span>Market</span>
+          <strong>{props.selected?.question || "Select a market"}</strong>
         </div>
+        <button className="icon-button" onClick={() => props.setOpen(!props.open)}>
+          <Search size={15} />{props.open ? "Hide" : "Search"}
+        </button>
       </div>
-      <div className="search-box">
-        <Search size={18} />
-        <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} placeholder="Search bitcoin, Iran, elections..." />
-        <button onClick={searchMarkets} disabled={busy === "scan"}>Search</button>
-      </div>
-      <div className="market-results">
-        {markets.length === 0 && <Empty text="Search a market keyword" />}
-        {markets.map((market) => (
-          <button key={market.id} className={selected?.id === market.id ? "market-card selected" : "market-card"} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
-            <MarketThumb market={market} />
-            <div className="market-card-main">
-              <strong>{market.question}</strong>
-              <span>{market.eventTitle || market.slug || "Market"}</span>
-            </div>
-            <div className="market-card-meta">
-              <b>{market.disabledReason || money(market.liquidity)}</b>
-              <span>{market.disabledReason ? "blocked" : "liquidity"}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
+
+      {props.selected && (
+        <div className="selected-strip">
+          <MarketThumb market={props.selected} />
+          <div>
+            <strong>{props.selected.question}</strong>
+            <span>{money(props.selected.liquidity)} liquidity / {props.marketLive?.spreadCents ?? "--"}c spread / closes {formatDate(props.selected.endDate)}</span>
+          </div>
+          <div className="price-pair">
+            <PricePill label="YES" value={cents(props.marketLive?.yesPrice)} tone="yes" />
+            <PricePill label="NO" value={cents(props.marketLive?.noPrice)} tone="no" />
+          </div>
+        </div>
+      )}
+
+      {props.open && (
+        <div className="market-search-panel">
+          <div className="search-row">
+            <Search size={17} />
+            <input
+              value={props.keyword}
+              onChange={(event) => props.setKeyword(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && props.searchMarkets()}
+              placeholder="Search markets"
+            />
+            <button className="solid-button" onClick={props.searchMarkets} disabled={props.busy === "scan"}>Search</button>
+          </div>
+          <div className="market-list">
+            {props.markets.length === 0 && <Empty text="No markets" />}
+            {props.markets.map((market) => (
+              <button key={market.id} className={props.selected?.id === market.id ? "market-row selected" : "market-row"} onClick={() => props.selectMarket(market)} disabled={Boolean(market.disabledReason)}>
+                <MarketThumb market={market} />
+                <span>
+                  <strong>{market.question}</strong>
+                  <small>{market.eventTitle || market.slug || market.disabledReason || "Market"}</small>
+                </span>
+                <b>{market.disabledReason || money(market.liquidity)}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
-function TradePanel(props: {
+function OrderTicket(props: {
   selected: Market | null;
   marketLive: MarketLive | null;
   side: "YES" | "NO";
@@ -772,116 +664,211 @@ function TradePanel(props: {
   risk: RiskLimits;
   selectedPrice?: number;
   tradeCollateralNeeded: number;
-  stopLoss: number;
-  setStopLoss: (value: number) => void;
-  takeProfit: number;
-  setTakeProfit: (value: number) => void;
+  wallet: WalletStatus | null;
   buy: () => void;
+  buyBlock: string;
   busy: string | null;
-  openMarketPicker: () => void;
 }) {
-  const estimatedShares = props.selectedPrice ? props.amount / props.selectedPrice : 0;
-  const buffer = Math.max(0, props.tradeCollateralNeeded - props.amount);
-  const minAmount = props.risk.minTradeUsd;
-  const maxAmount = props.risk.maxTradeUsd;
+  const shares = props.selectedPrice ? props.amount / props.selectedPrice : 0;
+  const remainingPusd = (props.wallet?.pusdBalance || 0) - props.tradeCollateralNeeded;
+  const remainingLabel = remainingPusd >= 0 ? money(remainingPusd) : `Short ${money(Math.abs(remainingPusd))}`;
+  const adjustAmount = (delta: number) => props.setAmount(props.amount + delta);
 
   return (
-    <div className="trade-ticket">
-      <header className="ticket-market">
-        <MarketThumb market={props.selected} />
-        <div className="ticket-market-main">
-          <span className="eyebrow">Selected market</span>
-          <h2>{props.selected?.question}</h2>
-          <div className="chip-row">
-            <Chip label="Liquidity" value={money(props.selected?.liquidity || 0)} />
-            <Chip label="Spread" value={`${props.marketLive?.spreadCents ?? "--"}c`} />
-            <Chip label="Ends" value={formatDate(props.selected?.endDate)} />
+    <section className="order-ticket">
+      <PanelHeader icon={<ShieldCheck size={16} />} title="Order" value={props.buyBlock || "Ready"} />
+      <div className="ticket-layout">
+        <div className="ticket-controls">
+          <div className="outcome-picker">
+            <button className={props.side === "YES" ? "yes active" : "yes"} onClick={() => props.setSide("YES")}>
+              <span>YES</span><b>{cents(props.marketLive?.yesPrice)}</b>
+            </button>
+            <button className={props.side === "NO" ? "no active" : "no"} onClick={() => props.setSide("NO")}>
+              <span>NO</span><b>{cents(props.marketLive?.noPrice)}</b>
+            </button>
+          </div>
+
+          <div className="amount-box">
+            <label>
+              <span>Amount</span>
+              <div className="amount-input">
+                <b>$</b>
+                <input type="number" min={props.risk.minTradeUsd} max={props.risk.maxTradeUsd} step="0.01" value={props.amount} onChange={(event) => props.setAmount(Number(event.target.value))} />
+              </div>
+            </label>
+            <div className="amount-tools">
+              <button onClick={() => adjustAmount(-0.1)}><Minus size={14} /></button>
+              <input type="range" min={props.risk.minTradeUsd} max={props.risk.maxTradeUsd} step="0.01" value={props.amount} onChange={(event) => props.setAmount(Number(event.target.value))} />
+              <button onClick={() => adjustAmount(0.1)}><Plus size={14} /></button>
+            </div>
+            <div className="preset-row">
+              <button onClick={() => props.setAmount(props.risk.minTradeUsd)}>Min {money(props.risk.minTradeUsd)}</button>
+              <button onClick={() => props.setAmount(props.risk.maxTradeUsd)}>Max {money(props.risk.maxTradeUsd)}</button>
+            </div>
           </div>
         </div>
-        <button className="ghost-button" onClick={props.openMarketPicker}><Search size={16} />Change</button>
-      </header>
 
-      <div className="ticket-grid">
-        <section className="ticket-controls">
-          <div className="control-block">
-            <div className="field-label-row">
-              <span>Outcome</span>
-              <strong>{props.side} at {cents(props.selectedPrice)}</strong>
-            </div>
-            <div className="segmented-control">
-              <button className={props.side === "YES" ? "yes active" : "yes"} onClick={() => props.setSide("YES")}>
-                <b>YES</b>
-                <span>{cents(props.marketLive?.yesPrice)}</span>
-              </button>
-              <button className={props.side === "NO" ? "no active" : "no"} onClick={() => props.setSide("NO")}>
-                <b>NO</b>
-                <span>{cents(props.marketLive?.noPrice)}</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="control-block">
-            <MoneyInput label="Trade amount" value={props.amount} min={minAmount} max={maxAmount} setValue={props.setAmount} />
-            <input className="amount-range" type="range" min={minAmount} max={maxAmount} step="0.01" value={props.amount} onChange={(event) => props.setAmount(Number(event.target.value))} />
-            <div className="quick-row">
-              <button className={props.amount === minAmount ? "active" : ""} onClick={() => props.setAmount(minAmount)}>Min {money(minAmount)}</button>
-              <button className={props.amount === maxAmount ? "active" : ""} onClick={() => props.setAmount(maxAmount)}>Max {money(maxAmount)}</button>
-            </div>
-          </div>
-        </section>
-
-        <aside className="order-summary">
-          <PanelTitle icon={<ShieldCheck size={16} />} label="Order ticket" value="Guarded" />
-          <div className="summary-list">
-            <SummaryRow label="Action" value={`Buy ${props.side}`} tone={props.side === "YES" ? "good" : "bad"} />
-            <SummaryRow label="Limit price" value={cents(props.selectedPrice)} />
-            <SummaryRow label="Estimated shares" value={estimatedShares ? estimatedShares.toFixed(2) : "--"} />
-            <SummaryRow label="Collateral buffer" value={money(buffer)} />
-          </div>
-          <button className="primary-action trade-button" onClick={props.buy} disabled={Boolean(props.busy)}>
-            {props.busy ? busyLabel(props.busy) : `Buy ${props.side} ${money(props.amount)}`}
-            <ArrowRight size={18} />
+        <div className="ticket-summary">
+          <KeyValue label="Outcome" value={`Buy ${props.side}`} tone={props.side === "YES" ? "good" : "bad"} />
+          <KeyValue label="Limit" value={cents(props.selectedPrice)} />
+          <KeyValue label="Shares" value={shares ? shares.toFixed(2) : "--"} />
+          <KeyValue label="Max collateral" value={money(props.tradeCollateralNeeded)} />
+          <KeyValue label="pUSD after" value={remainingLabel} tone={remainingPusd >= 0 ? "good" : "bad"} />
+          <button className="solid-button wide trade-submit" onClick={props.buy} disabled={Boolean(props.buyBlock || props.busy)}>
+            {props.busy ? busyLabel(props.busy) : props.buyBlock || `Buy ${props.side} ${money(props.amount)}`}<ArrowRight size={16} />
           </button>
-        </aside>
+        </div>
       </div>
 
-      <details className="advanced-panel">
-        <summary>
-          <span>Advanced controls</span>
-          <ChevronDown size={16} />
-        </summary>
-        <div className="risk-row">
-          <NumberInput label="Stop loss" suffix="%" value={props.stopLoss} setValue={props.setStopLoss} disabled={!exitAutomationEnabled} />
-          <NumberInput label="Take profit" suffix="%" value={props.takeProfit} setValue={props.setTakeProfit} disabled={!exitAutomationEnabled} />
-        </div>
-        <div className="guardrail-list">
-          <SummaryRow label="Max trade" value={money(props.risk.maxTradeUsd)} />
-          <SummaryRow label="Max spread" value={`${props.risk.maxSpreadCents}c`} />
-          <SummaryRow label="Min liquidity" value={money(props.risk.minLiquidityUsd)} />
+      <details className="inline-details">
+        <summary><span>Guardrails</span><ChevronDown size={15} /></summary>
+        <div className="guardrail-grid">
+          <KeyValue label="Max trade" value={money(props.risk.maxTradeUsd)} />
+          <KeyValue label="Max spread" value={`${props.risk.maxSpreadCents}c`} />
+          <KeyValue label="Min liquidity" value={money(props.risk.minLiquidityUsd)} />
+          <KeyValue label="Min resolution" value={`${props.risk.minHoursToResolution}h`} />
         </div>
       </details>
-    </div>
+    </section>
   );
 }
 
-function PanelTitle({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return <div className="panel-title">{icon}<span>{label}</span><strong>{value}</strong></div>;
+function SideDesk(props: {
+  tab: DeskTab;
+  setTab: (tab: DeskTab) => void;
+  positions: Position[];
+  journal: JournalEntry[];
+  wallet: WalletStatus | null;
+  unlocked: boolean;
+  exposure: number;
+  pnl: number;
+  sell: (position: Position) => void;
+  polling: boolean;
+  setPolling: (enabled: boolean) => void;
+  tradeFunded: boolean;
+}) {
+  return (
+    <aside className="side-desk">
+      <div className="desk-tabs">
+        <button className={props.tab === "positions" ? "active" : ""} onClick={() => props.setTab("positions")}>Positions</button>
+        <button className={props.tab === "activity" ? "active" : ""} onClick={() => props.setTab("activity")}>Activity</button>
+      </div>
+      {props.tab === "positions" ? (
+        <PositionsPanel
+          positions={props.positions}
+          unlocked={props.unlocked}
+          exposure={props.exposure}
+          pnl={props.pnl}
+          wallet={props.wallet}
+          sell={props.sell}
+          polling={props.polling}
+          setPolling={props.setPolling}
+          tradeFunded={props.tradeFunded}
+        />
+      ) : (
+        <ActivityPanel journal={props.journal} unlocked={props.unlocked} />
+      )}
+    </aside>
+  );
 }
 
-function StatusTile({ label, value, good }: { label: string; value: string; good?: boolean }) {
-  return <div className={good ? "status-tile good" : "status-tile"}><span>{label}</span><strong>{value}</strong></div>;
+function PositionsPanel(props: {
+  positions: Position[];
+  unlocked: boolean;
+  exposure: number;
+  pnl: number;
+  wallet: WalletStatus | null;
+  sell: (position: Position) => void;
+  polling: boolean;
+  setPolling: (enabled: boolean) => void;
+  tradeFunded: boolean;
+}) {
+  return (
+    <section className="desk-panel">
+      <PanelHeader icon={<Wallet size={16} />} title="Positions" value={props.unlocked ? `${props.positions.length}` : "Locked"} />
+      <div className="mini-metrics">
+        <KeyValue label="Exposure" value={props.unlocked ? money(props.exposure) : "--"} />
+        <KeyValue label="P&L" value={props.unlocked ? signedMoney(props.pnl) : "--"} tone={props.pnl >= 0 ? "good" : "bad"} />
+        <KeyValue label="pUSD" value={props.unlocked ? money(props.wallet?.pusdBalance || 0) : "--"} />
+      </div>
+      <div className="position-list">
+        {!props.unlocked && <Empty text="Locked" />}
+        {props.unlocked && props.positions.length === 0 && <Empty text="No open positions" />}
+        {props.positions.map((position) => (
+          <article className="position-row" key={position.id}>
+            <div>
+              <strong>{position.question}</strong>
+              <span>{position.side} / {position.shares.toFixed(2)} shares / {cents(position.currentPrice)}</span>
+            </div>
+            <b className={position.pnl >= 0 ? "good" : "bad"}>{signedMoney(position.pnl)}</b>
+            <button onClick={() => props.sell(position)}>Sell</button>
+          </article>
+        ))}
+      </div>
+      <label className="toggle-row">
+        <input type="checkbox" checked={exitAutomationEnabled && props.polling} disabled={!exitAutomationEnabled || !props.unlocked || !props.tradeFunded || props.positions.length === 0} onChange={(event) => props.setPolling(event.target.checked)} />
+        <span>{exitAutomationEnabled ? "Auto exits" : "Auto exits unavailable"}</span>
+      </label>
+    </section>
+  );
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return <div className={`metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong></div>;
+function ActivityPanel({ journal, unlocked }: { journal: JournalEntry[]; unlocked: boolean }) {
+  return (
+    <section className="desk-panel">
+      <PanelHeader icon={<Flame size={16} />} title="Activity" value={unlocked ? String(journal.length) : "Locked"} />
+      <div className="activity-list">
+        {!unlocked && <Empty text="Locked" />}
+        {unlocked && journal.length === 0 && <Empty text="No activity" />}
+        {journal.slice(0, 12).map((entry) => (
+          <article className="activity-row" key={entry.id}>
+            <time>{new Date(entry.at).toLocaleTimeString()}</time>
+            <strong>{entry.type}</strong>
+            <span>{entry.message}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
 }
 
-function SummaryRow({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return <div className="summary-row"><span>{label}</span><strong className={tone || ""}>{value}</strong></div>;
+function MarketData({ open, setOpen, marketLive, side }: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  marketLive: MarketLive | null;
+  side: "YES" | "NO";
+}) {
+  return (
+    <section className="market-data">
+      <button className="drawer-toggle" onClick={() => setOpen(!open)}>
+        <span>Market data</span>
+        <ChevronDown className={open ? "open" : ""} size={16} />
+      </button>
+      {open && (
+        <div className="data-grid">
+          <LiveChart history={marketLive?.history || []} yes={marketLive?.yesPrice} no={marketLive?.noPrice} />
+          <DepthBook side={side} levels={marketLive?.orderBook} />
+          <TradeTape rows={marketLive?.trades || []} />
+        </div>
+      )}
+    </section>
+  );
 }
 
-function Chip({ label, value }: { label: string; value: string }) {
-  return <span className="chip"><small>{label}</small><b>{value}</b></span>;
+function PanelHeader({ icon, title, value }: { icon: ReactNode; title: string; value: string }) {
+  return <div className="panel-header">{icon}<span>{title}</span><strong>{value}</strong></div>;
+}
+
+function ReadyRow({ label, value, ready }: { label: string; value: string; ready: boolean }) {
+  return <div className={ready ? "ready-row ready" : "ready-row"}><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function KeyValue({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
+  return <div className="key-value"><span>{label}</span><strong className={tone || ""}>{value}</strong></div>;
+}
+
+function PricePill({ label, value, tone }: { label: string; value: string; tone: "yes" | "no" }) {
+  return <span className={`price-pill ${tone}`}><small>{label}</small><b>{value}</b></span>;
 }
 
 function MarketThumb({ market }: { market: Market | null }) {
@@ -890,16 +877,17 @@ function MarketThumb({ market }: { market: Market | null }) {
   return <div className="market-thumb fallback"><TrendingUp size={18} /></div>;
 }
 
-function MoneyInput({ label, value, min, max, setValue }: { label: string; value: number; min: number; max: number; setValue: (value: number) => void }) {
-  return <label className="money-input"><span>{label}</span><div><b>$</b><input type="number" min={min} max={max} step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div></label>;
-}
-
-function NumberInput({ label, value, setValue, suffix = "", disabled = false }: { label: string; value: number; setValue: (value: number) => void; suffix?: string; disabled?: boolean }) {
-  return <label className="number-input"><span>{label}</span><div><input type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
+function Toast({ tone, children }: { tone: "good" | "bad"; children: ReactNode }) {
+  return (
+    <section className={`toast ${tone}`}>
+      {tone === "good" ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+      <span>{children}</span>
+    </section>
+  );
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="empty">{text}</div>;
+  return <div className="empty-state">{text}</div>;
 }
 
 function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; yes?: number; no?: number }) {
@@ -922,7 +910,7 @@ function LiveChart({ history, yes, no }: { history: { t: number; p: number }[]; 
         <path d={`${d} L 100 100 L 0 100 Z`} className="chart-fill" />
         <path d={d} className="chart-line" />
       </svg>
-      {fallback && <p>No recent price history returned.</p>}
+      {fallback && <small>No recent history</small>}
     </div>
   );
 }
@@ -932,10 +920,10 @@ function DepthBook({ side, levels }: { side: "YES" | "NO"; levels?: MarketLive["
   const asks = levels?.asks || [];
   return (
     <div className="book-card">
-      <PanelTitle icon={<TrendingUp size={16} />} label="Order book" value={side} />
+      <PanelHeader icon={<TrendingUp size={16} />} title="Order book" value={side} />
       <BookSide label="Asks" rows={asks} tone="bad" />
       <BookSide label="Bids" rows={bids} tone="good" />
-      {!bids.length && !asks.length && <Empty text="No order book returned" />}
+      {!bids.length && !asks.length && <Empty text="No book" />}
     </div>
   );
 }
@@ -958,8 +946,8 @@ function BookSide({ label, rows, tone }: { label: string; rows: BookLevel[]; ton
 function TradeTape({ rows }: { rows: TapeRow[] }) {
   return (
     <div className="tape-card">
-      <PanelTitle icon={<Flame size={16} />} label="Live activity" value={String(rows.length)} />
-      {rows.length === 0 && <Empty text="No recent trades" />}
+      <PanelHeader icon={<Flame size={16} />} title="Tape" value={String(rows.length)} />
+      {rows.length === 0 && <Empty text="No trades" />}
       {rows.slice(0, 8).map((row, index) => (
         <div className="tape-row" key={`${row.time}-${index}`}>
           <strong className={row.outcome?.toUpperCase() === "YES" ? "good" : "bad"}>{row.outcome || row.side}</strong>
@@ -970,6 +958,28 @@ function TradeTape({ rows }: { rows: TapeRow[] }) {
       ))}
     </div>
   );
+}
+
+function buyBlockReason(input: {
+  booted: boolean;
+  env: EnvCheck | null;
+  isUnlocked: boolean;
+  wallet: WalletStatus | null;
+  walletArmed: boolean;
+  tradeFunded: boolean;
+  selected: Market | null;
+  marketLive: MarketLive | null;
+  selectedPrice?: number;
+}) {
+  if (!input.booted) return "Syncing";
+  if (!input.isUnlocked) return "Locked";
+  if (!input.env?.ok) return "Config";
+  if (!input.walletArmed) return "Arm wallet";
+  if (!input.wallet?.readyToTrade || !input.tradeFunded) return "Fund pUSD";
+  if (!input.selected) return "Select market";
+  if (!input.marketLive?.ok) return input.marketLive?.reason || "No quote";
+  if (!input.selectedPrice) return "No price";
+  return "";
 }
 
 function saveSession(session: AuthSession) {
@@ -1010,6 +1020,7 @@ function cents(value?: number | null) {
 }
 
 function money(value: number) {
+  if (!Number.isFinite(value)) return "--";
   return `$${value.toFixed(2)}`;
 }
 

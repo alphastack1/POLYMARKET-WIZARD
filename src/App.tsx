@@ -577,26 +577,26 @@ export default function App() {
 function heroCopy(stage: Stage, wallet: WalletStatus | null, selected: Market | null, selectedPrice?: number) {
   if (stage === "loading") return {
     eyebrow: "Checking",
-    title: "Loading wallet status",
-    body: "The Wizard is syncing configuration, balances, approvals, and the selected market before enabling actions.",
+    title: "Syncing account",
+    body: "Configuration, balances, approvals, and market data are being refreshed.",
     action: "Sync status",
   };
   if (stage === "unlock") return {
     eyebrow: "Step 1",
     title: "Unlock the bot wallet",
-    body: "Connect the wallet that owns this Wizard. Viewing is open, but funded actions stay locked until this wallet signs.",
+    body: "Connect the wallet that owns this Wizard.",
     action: "Unlock wallet",
   };
   if (stage === "system") return {
     eyebrow: "System check",
     title: "Configuration needs attention",
-    body: "The app is missing required server-side configuration. Sync after fixing the Netlify environment.",
+    body: "Required server-side configuration is missing.",
     action: "Check system",
   };
   if (stage === "arm") return {
     eyebrow: "Step 2",
     title: "Arm the deposit wallet",
-    body: "Deploy the Polymarket deposit wallet and set the approvals needed for trading.",
+    body: "The Polymarket deposit wallet needs deployment or approvals.",
     action: "Arm wallet",
   };
   if (stage === "fund") return {
@@ -608,13 +608,13 @@ function heroCopy(stage: Stage, wallet: WalletStatus | null, selected: Market | 
   if (stage === "market") return {
     eyebrow: "Step 4",
     title: "Choose a tradeable market",
-    body: "Search a keyword, pick an open market, then review live prices before placing a trade.",
+    body: "Search, select, then review the live order ticket.",
     action: "Search markets",
   };
   return {
     eyebrow: "Ready",
     title: selected?.question || "Ready to trade",
-    body: `${selectedPrice ? `Current ${cents(selectedPrice)} ${selected ? "price" : ""}.` : "Live quote loaded."} Pick YES or NO, size the trade, then place the order.`,
+    body: `${selectedPrice ? `Live ${cents(selectedPrice)} ${selected ? "quote" : ""}.` : "Live quote loaded."} Review size, shares, and guardrails before buying.`,
     action: "Review order",
   };
 }
@@ -638,18 +638,24 @@ function WalletSummary({ env, wallet, unlocked, walletArmed, tradeFunded }: {
 }) {
   return (
     <div className="wallet-summary">
-      <PanelTitle icon={<ShieldCheck size={16} />} label="Status" value={unlocked ? "Unlocked" : "Locked"} />
-      <div className="status-grid">
+      <PanelTitle icon={<ShieldCheck size={16} />} label="Account" value={unlocked ? "Unlocked" : "Locked"} />
+      <div className="status-stack">
         <StatusTile label="Env" value={env?.ok ? "Ready" : "Check"} good={Boolean(env?.ok)} />
         <StatusTile label="Wallet" value={!unlocked ? "Locked" : walletArmed ? "Armed" : "Needs arm"} good={unlocked && walletArmed} />
-        <StatusTile label="Funds" value={unlocked ? money(wallet?.pusdBalance || 0) : "--"} good={unlocked && tradeFunded} />
+        <StatusTile label="Trade funds" value={unlocked ? money(wallet?.pusdBalance || 0) : "--"} good={unlocked && tradeFunded} />
       </div>
       {unlocked && (
-        <div className="wallet-lines">
-          <span>Bot <b>{short(wallet?.botAddress || "")}</b></span>
-          <span>POL quote <b>{money(wallet?.polUsdcEstimate || 0)}</b></span>
-          <span>USDC.e <b>{money(wallet?.usdcBalance || 0)}</b></span>
-        </div>
+        <details className="wallet-drawer">
+          <summary>
+            <span>Wallet balances</span>
+            <ChevronDown size={15} />
+          </summary>
+          <div className="wallet-lines">
+            <span>Bot <b>{short(wallet?.botAddress || "")}</b></span>
+            <span>POL quote <b>{money(wallet?.polUsdcEstimate || 0)}</b></span>
+            <span>USDC.e <b>{money(wallet?.usdcBalance || 0)}</b></span>
+          </div>
+        </details>
       )}
     </div>
   );
@@ -725,6 +731,12 @@ function MarketPicker({ keyword, setKeyword, searchMarkets, busy, markets, selec
 }) {
   return (
     <div className="market-picker">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">Markets</span>
+          <h2>Find a tradeable market</h2>
+        </div>
+      </div>
       <div className="search-box">
         <Search size={18} />
         <input value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && searchMarkets()} placeholder="Search bitcoin, Iran, elections..." />
@@ -734,10 +746,14 @@ function MarketPicker({ keyword, setKeyword, searchMarkets, busy, markets, selec
         {markets.length === 0 && <Empty text="Search a market keyword" />}
         {markets.map((market) => (
           <button key={market.id} className={selected?.id === market.id ? "market-card selected" : "market-card"} onClick={() => selectMarket(market)} disabled={Boolean(market.disabledReason)}>
-            {market.image && <img src={market.image} alt="" />}
-            <div>
+            <MarketThumb market={market} />
+            <div className="market-card-main">
               <strong>{market.question}</strong>
-              <span>{market.disabledReason || `${money(market.liquidity)} liquidity`}</span>
+              <span>{market.eventTitle || market.slug || "Market"}</span>
+            </div>
+            <div className="market-card-meta">
+              <b>{market.disabledReason || money(market.liquidity)}</b>
+              <span>{market.disabledReason ? "blocked" : "liquidity"}</span>
             </div>
           </button>
         ))}
@@ -764,44 +780,86 @@ function TradePanel(props: {
   busy: string | null;
   openMarketPicker: () => void;
 }) {
+  const estimatedShares = props.selectedPrice ? props.amount / props.selectedPrice : 0;
+  const buffer = Math.max(0, props.tradeCollateralNeeded - props.amount);
+  const minAmount = props.risk.minTradeUsd;
+  const maxAmount = props.risk.maxTradeUsd;
+
   return (
-    <div className="trade-flow">
-      <div className="selected-market-card">
-        {props.selected?.image && <img src={props.selected.image} alt="" />}
-        <div>
+    <div className="trade-ticket">
+      <header className="ticket-market">
+        <MarketThumb market={props.selected} />
+        <div className="ticket-market-main">
           <span className="eyebrow">Selected market</span>
           <h2>{props.selected?.question}</h2>
-          <p>{money(props.selected?.liquidity || 0)} liquidity / spread {props.marketLive?.spreadCents ?? "--"}c</p>
+          <div className="chip-row">
+            <Chip label="Liquidity" value={money(props.selected?.liquidity || 0)} />
+            <Chip label="Spread" value={`${props.marketLive?.spreadCents ?? "--"}c`} />
+            <Chip label="Ends" value={formatDate(props.selected?.endDate)} />
+          </div>
         </div>
-        <button onClick={props.openMarketPicker}>Change</button>
+        <button className="ghost-button" onClick={props.openMarketPicker}><Search size={16} />Change</button>
+      </header>
+
+      <div className="ticket-grid">
+        <section className="ticket-controls">
+          <div className="control-block">
+            <div className="field-label-row">
+              <span>Outcome</span>
+              <strong>{props.side} at {cents(props.selectedPrice)}</strong>
+            </div>
+            <div className="segmented-control">
+              <button className={props.side === "YES" ? "yes active" : "yes"} onClick={() => props.setSide("YES")}>
+                <b>YES</b>
+                <span>{cents(props.marketLive?.yesPrice)}</span>
+              </button>
+              <button className={props.side === "NO" ? "no active" : "no"} onClick={() => props.setSide("NO")}>
+                <b>NO</b>
+                <span>{cents(props.marketLive?.noPrice)}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="control-block">
+            <MoneyInput label="Trade amount" value={props.amount} min={minAmount} max={maxAmount} setValue={props.setAmount} />
+            <input className="amount-range" type="range" min={minAmount} max={maxAmount} step="0.01" value={props.amount} onChange={(event) => props.setAmount(Number(event.target.value))} />
+            <div className="quick-row">
+              <button className={props.amount === minAmount ? "active" : ""} onClick={() => props.setAmount(minAmount)}>Min {money(minAmount)}</button>
+              <button className={props.amount === maxAmount ? "active" : ""} onClick={() => props.setAmount(maxAmount)}>Max {money(maxAmount)}</button>
+            </div>
+          </div>
+        </section>
+
+        <aside className="order-summary">
+          <PanelTitle icon={<ShieldCheck size={16} />} label="Order ticket" value="Guarded" />
+          <div className="summary-list">
+            <SummaryRow label="Action" value={`Buy ${props.side}`} tone={props.side === "YES" ? "good" : "bad"} />
+            <SummaryRow label="Limit price" value={cents(props.selectedPrice)} />
+            <SummaryRow label="Estimated shares" value={estimatedShares ? estimatedShares.toFixed(2) : "--"} />
+            <SummaryRow label="Collateral buffer" value={money(buffer)} />
+          </div>
+          <button className="primary-action trade-button" onClick={props.buy} disabled={Boolean(props.busy)}>
+            {props.busy ? busyLabel(props.busy) : `Buy ${props.side} ${money(props.amount)}`}
+            <ArrowRight size={18} />
+          </button>
+        </aside>
       </div>
 
-      <div className="side-picker">
-        <button className={props.side === "YES" ? "yes active" : "yes"} onClick={() => props.setSide("YES")}>YES <span>{cents(props.marketLive?.yesPrice)}</span></button>
-        <button className={props.side === "NO" ? "no active" : "no"} onClick={() => props.setSide("NO")}>NO <span>{cents(props.marketLive?.noPrice)}</span></button>
-      </div>
-
-      <div className="trade-form">
-        <MoneyInput label="Trade amount" value={props.amount} min={props.risk.minTradeUsd} max={props.risk.maxTradeUsd} setValue={props.setAmount} />
-        <div className="quick-row">
-          {[1.1, 2].map((value) => (
-            <button key={value} className={props.amount === value ? "active" : ""} onClick={() => props.setAmount(value)}>{money(value)}</button>
-          ))}
-        </div>
-        <div className="metric-row">
-          <Metric label="Limit" value={cents(props.selectedPrice)} />
-          <Metric label="Shares" value={props.selectedPrice ? (props.amount / props.selectedPrice).toFixed(2) : "--"} />
-          <Metric label="Buffer" value={money(props.tradeCollateralNeeded - props.amount)} />
-        </div>
+      <details className="advanced-panel">
+        <summary>
+          <span>Advanced controls</span>
+          <ChevronDown size={16} />
+        </summary>
         <div className="risk-row">
           <NumberInput label="Stop loss" suffix="%" value={props.stopLoss} setValue={props.setStopLoss} disabled={!exitAutomationEnabled} />
           <NumberInput label="Take profit" suffix="%" value={props.takeProfit} setValue={props.setTakeProfit} disabled={!exitAutomationEnabled} />
         </div>
-        <button className="primary-action trade-button" onClick={props.buy} disabled={Boolean(props.busy)}>
-          {props.busy ? busyLabel(props.busy) : `Buy ${props.side} ${money(props.amount)}`}
-          <ArrowRight size={18} />
-        </button>
-      </div>
+        <div className="guardrail-list">
+          <SummaryRow label="Max trade" value={money(props.risk.maxTradeUsd)} />
+          <SummaryRow label="Max spread" value={`${props.risk.maxSpreadCents}c`} />
+          <SummaryRow label="Min liquidity" value={money(props.risk.minLiquidityUsd)} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -816,6 +874,20 @@ function StatusTile({ label, value, good }: { label: string; value: string; good
 
 function Metric({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
   return <div className={`metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function SummaryRow({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
+  return <div className="summary-row"><span>{label}</span><strong className={tone || ""}>{value}</strong></div>;
+}
+
+function Chip({ label, value }: { label: string; value: string }) {
+  return <span className="chip"><small>{label}</small><b>{value}</b></span>;
+}
+
+function MarketThumb({ market }: { market: Market | null }) {
+  const [failed, setFailed] = useState(false);
+  if (market?.image && !failed) return <img className="market-thumb" src={market.image} alt="" onError={() => setFailed(true)} />;
+  return <div className="market-thumb fallback"><TrendingUp size={18} /></div>;
 }
 
 function MoneyInput({ label, value, min, max, setValue }: { label: string; value: number; min: number; max: number; setValue: (value: number) => void }) {
@@ -943,6 +1015,13 @@ function money(value: number) {
 
 function signedMoney(value: number) {
   return `${value >= 0 ? "+" : "-"}$${Math.abs(value).toFixed(2)}`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "--";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function short(value: string) {

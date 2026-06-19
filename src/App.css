@@ -1,21 +1,23 @@
 :root {
-  color: #edf7f0;
-  background: #030604;
-  font-family: "Inter", "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #f3f6f2;
+  background: #070908;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color-scheme: dark;
-  --bg: #030604;
-  --panel: #07100b;
-  --panel-2: #0c1711;
-  --panel-3: #122019;
-  --line: rgba(213, 255, 226, 0.12);
-  --line-hot: rgba(49, 211, 100, 0.45);
-  --green: #31d364;
-  --green-soft: rgba(49, 211, 100, 0.14);
-  --red: #ff4d64;
-  --red-soft: rgba(255, 77, 100, 0.13);
-  --amber: #ffd166;
-  --muted: #8ea097;
-  --text: #edf7f0;
+  --bg: #070908;
+  --surface: #0d1110;
+  --surface-2: #121715;
+  --surface-3: #171d1a;
+  --line: rgba(221, 232, 224, 0.12);
+  --line-strong: rgba(221, 232, 224, 0.22);
+  --text: #f3f6f2;
+  --muted: #9ba9a1;
+  --faint: #6f7b75;
+  --green: #32d074;
+  --green-soft: rgba(50, 208, 116, 0.12);
+  --red: #ff5c72;
+  --red-soft: rgba(255, 92, 114, 0.13);
+  --amber: #f3c65a;
+  --blue: #70c7ff;
 }
 
 * {
@@ -41,12 +43,10 @@ body {
 body {
   margin: 0;
   background:
-    linear-gradient(rgba(49, 211, 100, 0.024) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(49, 211, 100, 0.024) 1px, transparent 1px),
-    radial-gradient(circle at 12% 0%, rgba(49, 211, 100, 0.1), transparent 30rem),
-    radial-gradient(circle at 90% 10%, rgba(255, 77, 100, 0.075), transparent 28rem),
-    var(--bg);
-  background-size: 30px 30px, 30px 30px, auto, auto, auto;
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+    linear-gradient(180deg, #090d0b 0%, #060807 100%);
+  background-size: 28px 28px, 28px 28px, auto;
 }
 
 button,
@@ -70,9 +70,9 @@ button:disabled {
 }
 
 .app-shell {
-  width: min(1180px, calc(100vw - 28px));
+  width: min(1220px, calc(100vw - 28px));
   margin: 0 auto;
-  padding: 16px 0 36px;
+  padding: 12px 0 36px;
   touch-action: pan-y;
 }
 
@@ -84,18 +84,18 @@ button:disabled {
 .panel,
 .details-card {
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(7, 16, 11, 0.94);
-  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  border-radius: 8px;
+  background: rgba(13, 17, 16, 0.96);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
 }
 
 .app-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 70px;
-  padding: 12px;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px;
 }
 
 .brand-block,
@@ -106,13 +106,15 @@ button:disabled {
 .top-actions button,
 .search-box,
 .details-toggle,
-.toggle-row {
+.toggle-row,
+.wallet-drawer summary,
+.advanced-panel summary {
   display: flex;
   align-items: center;
 }
 
 .brand-block {
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -120,37 +122,37 @@ button:disabled {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
   background: var(--green);
-  color: #041006;
-  box-shadow: 0 0 36px rgba(49, 211, 100, 0.24);
+  color: #031108;
 }
 
 .brand-block strong {
   display: block;
   color: var(--text);
-  font-size: 16px;
-  font-weight: 950;
+  font-size: 15px;
+  font-weight: 850;
 }
 
 .brand-block span,
 .hero-card p,
 .wallet-lines span,
-.selected-market-card p,
 .fund-panel p,
 .simple-panel p,
 .journal-row p,
-.position-row span {
+.position-row span,
+.market-card-main span,
+.chip small {
   color: var(--muted);
 }
 
 .brand-block span {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -165,28 +167,28 @@ button:disabled {
 .button-row button,
 .search-box button,
 .market-card,
-.selected-market-card button,
+.ghost-button,
 .quick-row button,
 .position-row button {
-  min-height: 42px;
+  min-height: 38px;
   border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel-2);
+  border-radius: 8px;
+  background: var(--surface-2);
   color: var(--text);
-  font-weight: 850;
-  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+  font-weight: 750;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
 
 .top-actions button,
 .side-actions button,
 .button-row button,
 .search-box button,
-.selected-market-card button,
+.ghost-button,
 .quick-row button,
 .position-row button {
   justify-content: center;
   gap: 7px;
-  padding: 0 13px;
+  padding: 0 12px;
 }
 
 .top-actions button:hover,
@@ -194,18 +196,18 @@ button:disabled {
 .button-row button:hover,
 .search-box button:hover,
 .market-card:hover:not(:disabled),
-.selected-market-card button:hover,
+.ghost-button:hover,
 .quick-row button:hover,
 .position-row button:hover {
-  border-color: var(--line-hot);
-  background: rgba(49, 211, 100, 0.08);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
 }
 
 .green-button,
 .primary-action {
-  border-color: rgba(49, 211, 100, 0.6) !important;
+  border-color: rgba(50, 208, 116, 0.65) !important;
   background: var(--green) !important;
-  color: #041006 !important;
+  color: #031108 !important;
 }
 
 .primary-action {
@@ -213,16 +215,16 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 54px;
-  padding: 0 18px;
+  min-height: 46px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 14px;
-  font-weight: 950;
-  transition: transform 150ms ease, filter 150ms ease;
+  border-radius: 8px;
+  font-weight: 850;
+  transition: transform 140ms ease, filter 140ms ease;
 }
 
 .primary-action:hover:not(:disabled) {
-  filter: brightness(1.06);
+  filter: brightness(1.05);
   transform: translateY(-1px);
 }
 
@@ -230,19 +232,19 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 44px;
+  min-height: 42px;
   margin-top: 10px;
-  padding: 0 13px;
-  border: 1px solid rgba(49, 211, 100, 0.32);
-  border-radius: 13px;
-  background: rgba(49, 211, 100, 0.1);
+  padding: 0 12px;
+  border: 1px solid rgba(50, 208, 116, 0.3);
+  border-radius: 8px;
+  background: rgba(50, 208, 116, 0.1);
   color: var(--green);
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 750;
 }
 
 .alert.error {
-  border-color: rgba(255, 77, 100, 0.34);
+  border-color: rgba(255, 92, 114, 0.34);
   background: var(--red-soft);
   color: var(--red);
 }
@@ -250,21 +252,19 @@ button:disabled {
 .hero-card {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 18px;
+  gap: 16px;
   align-items: center;
-  margin-top: 12px;
-  padding: 22px;
-  border-color: rgba(49, 211, 100, 0.26);
-  background:
-    linear-gradient(135deg, rgba(49, 211, 100, 0.16), rgba(7, 16, 11, 0.96) 48%),
-    var(--panel);
+  margin-top: 10px;
+  padding: 16px;
+  border-color: rgba(112, 199, 255, 0.18);
+  background: linear-gradient(135deg, rgba(112, 199, 255, 0.08), rgba(13, 17, 16, 0.98) 46%);
 }
 
 .eyebrow {
   display: inline-flex;
-  color: var(--green);
-  font-size: 11px;
-  font-weight: 900;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 850;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -272,42 +272,44 @@ button:disabled {
 .hero-card h1,
 .simple-panel h2,
 .fund-panel h2,
-.selected-market-card h2 {
-  margin: 7px 0 0;
+.section-head h2,
+.ticket-market h2 {
+  margin: 5px 0 0;
   color: var(--text);
-  line-height: 1.1;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .hero-card h1 {
-  max-width: 760px;
-  font-size: clamp(28px, 4vw, 48px);
+  max-width: 780px;
+  font-size: 26px;
 }
 
 .hero-card p {
-  max-width: 780px;
-  margin: 12px 0 0;
+  max-width: 760px;
+  margin: 8px 0 0;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .progress-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-  padding: 10px;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px;
 }
 
 .progress-step {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
-  min-height: 42px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel-2);
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface-2);
   color: var(--muted);
 }
 
@@ -315,8 +317,8 @@ button:disabled {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   font-size: 11px;
@@ -325,63 +327,67 @@ button:disabled {
 .progress-step span {
   overflow: hidden;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .progress-step.done {
-  border-color: rgba(49, 211, 100, 0.34);
   color: var(--green);
 }
 
 .progress-step.done b {
   background: var(--green);
-  color: #041006;
+  color: #031108;
 }
 
 .progress-step.active {
-  border-color: var(--line-hot);
+  border-color: var(--line-strong);
   color: var(--text);
 }
 
 .guided-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 284px minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .side-card,
 .task-card,
 .panel,
 .details-card {
-  padding: 16px;
+  padding: 14px;
 }
 
 .side-card {
   position: sticky;
-  top: 12px;
+  top: 10px;
+}
+
+.task-card {
+  min-width: 0;
 }
 
 .panel-title {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 20px 1fr auto;
   gap: 8px;
-  min-height: 24px;
-  color: var(--green);
+  min-height: 22px;
+  color: var(--blue);
 }
 
 .panel-title span,
-.metric span,
 .status-tile span,
+.metric span,
 .money-input span,
 .number-input span,
+.field-label-row span,
 .book-head {
   color: var(--muted);
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 850;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -391,47 +397,68 @@ button:disabled {
   font-size: 12px;
 }
 
-.status-grid,
-.metric-row {
+.status-stack {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 7px;
   margin-top: 12px;
 }
 
-.status-tile,
-.metric,
-.money-input,
-.number-input,
-.empty {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel-2);
-}
-
 .status-tile {
-  min-height: 66px;
-  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 .status-tile strong,
 .metric strong {
-  display: block;
-  margin-top: 7px;
   color: var(--text);
-  font-size: 17px;
-  font-weight: 950;
+  font-size: 15px;
+  font-weight: 850;
 }
 
 .status-tile.good {
-  border-color: rgba(49, 211, 100, 0.34);
+  border-color: rgba(50, 208, 116, 0.3);
   background: var(--green-soft);
+}
+
+.wallet-drawer,
+.advanced-panel {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.wallet-drawer summary,
+.advanced-panel summary {
+  justify-content: space-between;
+  min-height: 40px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  list-style: none;
+  cursor: pointer;
+}
+
+.wallet-drawer summary::-webkit-details-marker,
+.advanced-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.wallet-drawer[open] summary svg,
+.advanced-panel[open] summary svg,
+.details-toggle .open {
+  transform: rotate(180deg);
 }
 
 .wallet-lines {
   display: grid;
   gap: 7px;
-  margin-top: 12px;
+  padding-bottom: 2px;
   font-size: 12px;
 }
 
@@ -448,13 +475,13 @@ button:disabled {
 .side-actions {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .simple-panel {
   display: grid;
   justify-items: center;
-  min-height: 430px;
+  min-height: 360px;
   align-content: center;
   text-align: center;
 }
@@ -470,35 +497,44 @@ button:disabled {
 }
 
 .simple-panel h2,
-.fund-panel h2 {
-  font-size: 28px;
+.fund-panel h2,
+.section-head h2 {
+  font-size: 24px;
 }
 
 .simple-panel p,
 .fund-panel p {
   max-width: 520px;
-  margin: 10px auto 18px;
+  margin: 8px auto 18px;
   line-height: 1.5;
 }
 
 .fund-panel {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+}
+
+.section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .search-box {
   gap: 10px;
-  min-height: 58px;
-  padding: 8px 8px 8px 14px;
+  min-height: 48px;
+  padding: 6px 6px 6px 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel-2);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 .search-box input {
   min-width: 0;
   flex: 1;
-  min-height: 42px;
+  min-height: 36px;
   border: 0;
   outline: none;
   background: transparent;
@@ -509,129 +545,228 @@ button:disabled {
 .position-list,
 .journal-list {
   display: grid;
-  gap: 9px;
-  margin-top: 12px;
+  gap: 7px;
+  margin-top: 10px;
 }
 
 .market-results {
-  max-height: none;
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .market-card {
   display: grid;
-  grid-template-columns: 56px 1fr;
-  gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
-  min-height: 78px;
-  padding: 10px;
+  min-height: 64px;
+  padding: 8px;
   text-align: left;
 }
 
 .market-card.selected {
-  border-color: var(--line-hot);
-  background: linear-gradient(90deg, rgba(49, 211, 100, 0.13), rgba(255, 255, 255, 0.025));
+  border-color: rgba(50, 208, 116, 0.4);
+  background: var(--green-soft);
 }
 
-.market-card img,
-.selected-market-card img {
-  object-fit: cover;
-  border-radius: 12px;
-}
-
-.market-card img {
-  width: 56px;
-  height: 56px;
+.market-card-main {
+  min-width: 0;
 }
 
 .market-card strong {
   display: block;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
-.market-card span {
+.market-card-main span {
   display: block;
-  margin-top: 5px;
-  color: var(--green);
+  margin-top: 4px;
+  overflow: hidden;
   font-size: 11px;
-  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.trade-flow {
-  display: grid;
-  gap: 14px;
+.market-card-meta {
+  min-width: 88px;
+  text-align: right;
 }
 
-.selected-market-card {
-  display: grid;
-  grid-template-columns: 72px 1fr auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel-2);
-}
-
-.selected-market-card img {
-  width: 72px;
-  height: 72px;
-}
-
-.selected-market-card h2 {
-  font-size: 21px;
-}
-
-.selected-market-card p {
-  margin: 7px 0 0;
+.market-card-meta b {
+  display: block;
+  color: var(--text);
   font-size: 12px;
 }
 
-.side-picker {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.side-picker button {
-  min-height: 84px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: 30px;
-  font-weight: 950;
-}
-
-.side-picker button span {
+.market-card-meta span {
   display: block;
   margin-top: 3px;
-  color: var(--muted);
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.market-thumb {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--blue);
+}
+
+.market-thumb.fallback {
+  color: var(--blue);
+}
+
+.trade-ticket {
+  display: grid;
+  gap: 14px;
+}
+
+.ticket-market {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ticket-market .market-thumb {
+  width: 54px;
+  height: 54px;
+}
+
+.ticket-market-main {
+  min-width: 0;
+}
+
+.ticket-market h2 {
+  max-width: 760px;
+  font-size: 20px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.chip small {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.chip b {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.ticket-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 14px;
+  align-items: start;
+}
+
+.ticket-controls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.control-block {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-label-row strong {
+  color: var(--text);
   font-size: 13px;
 }
 
-.side-picker .yes.active {
-  border-color: rgba(49, 211, 100, 0.62);
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #090c0b;
+}
+
+.segmented-control button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+}
+
+.segmented-control b {
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.segmented-control span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.segmented-control .yes.active {
+  border-color: rgba(50, 208, 116, 0.42);
   background: var(--green-soft);
   color: var(--green);
 }
 
-.side-picker .no.active {
-  border-color: rgba(255, 77, 100, 0.62);
+.segmented-control .no.active {
+  border-color: rgba(255, 92, 114, 0.42);
   background: var(--red-soft);
   color: var(--red);
-}
-
-.trade-form {
-  display: grid;
-  gap: 10px;
 }
 
 .money-input,
 .number-input {
   display: block;
-  padding: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 .money-input div,
@@ -639,24 +774,29 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 7px;
+  margin-top: 5px;
   color: var(--text);
-  font-size: 28px;
-  font-weight: 950;
+  font-size: 24px;
+  font-weight: 900;
 }
 
 .money-input input,
 .number-input input {
   min-width: 0;
   width: 100%;
-  min-height: 36px;
+  min-height: 34px;
   padding: 0;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 28px;
-  font-weight: 950;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.amount-range {
+  width: 100%;
+  accent-color: var(--green);
 }
 
 .quick-row,
@@ -667,18 +807,94 @@ button:disabled {
 }
 
 .quick-row button {
-  min-height: 42px;
+  min-height: 38px;
+  white-space: nowrap;
 }
 
 .quick-row .active {
-  border-color: var(--green);
+  border-color: rgba(50, 208, 116, 0.6);
   background: var(--green);
-  color: #041006;
+  color: #031108;
+}
+
+.order-summary {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+
+.summary-list,
+.guardrail-list {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 39px;
+  padding: 0 10px;
+  background: var(--surface-2);
+}
+
+.summary-row + .summary-row {
+  border-top: 1px solid var(--line);
+}
+
+.summary-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary-row strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 850;
+  text-align: right;
+}
+
+.trade-button {
+  width: 100%;
+}
+
+.advanced-panel {
+  padding-top: 2px;
+}
+
+.advanced-panel .risk-row,
+.advanced-panel .guardrail-list {
+  margin-top: 10px;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .metric {
-  min-height: 70px;
-  padding: 11px;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.metric span {
+  display: block;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 7px;
 }
 
 .metric.good strong,
@@ -691,38 +907,35 @@ button:disabled {
   color: var(--red) !important;
 }
 
-.trade-button {
-  width: 100%;
-}
-
 .below-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-  gap: 12px;
-  margin-top: 12px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .position-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
-  min-height: 66px;
-  padding: 11px;
+  min-height: 58px;
+  padding: 9px;
   border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--panel-2);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 .position-row strong {
   display: block;
   color: var(--text);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .position-row span {
   display: block;
-  margin-top: 4px;
+  margin-top: 3px;
   font-size: 11px;
 }
 
@@ -738,9 +951,14 @@ button:disabled {
   height: 16px;
 }
 
+.journal-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
 .journal-row {
   display: grid;
-  grid-template-columns: 76px 104px 1fr;
+  grid-template-columns: 74px 104px minmax(0, 1fr);
   gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid var(--line);
@@ -752,15 +970,17 @@ button:disabled {
 }
 
 .journal-row strong {
-  color: var(--green);
+  color: var(--blue);
 }
 
 .journal-row p {
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .details-card {
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 0;
   overflow: hidden;
 }
@@ -768,41 +988,37 @@ button:disabled {
 .details-toggle {
   justify-content: space-between;
   width: 100%;
-  min-height: 54px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: 0 14px;
   border: 0;
   background: transparent;
   color: var(--text);
-  font-weight: 900;
-}
-
-.details-toggle .open {
-  transform: rotate(180deg);
+  font-weight: 800;
 }
 
 .details-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr) minmax(260px, 0.8fr);
-  gap: 12px;
-  padding: 0 16px 16px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr) minmax(250px, 0.8fr);
+  gap: 10px;
+  padding: 0 14px 14px;
 }
 
 .chart-card,
 .book-card,
 .tape-card {
   min-width: 0;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--panel-2);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
 
 .chart-card {
   position: relative;
   background:
-    linear-gradient(rgba(49, 211, 100, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(49, 211, 100, 0.045) 1px, transparent 1px),
-    var(--panel-2);
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    var(--surface-2);
   background-size: 28px 28px;
 }
 
@@ -811,35 +1027,35 @@ button:disabled {
   justify-content: space-between;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .chart-card svg {
   display: block;
   width: 100%;
-  height: 240px;
+  height: 220px;
   margin-top: 6px;
 }
 
 .chart-fill {
-  fill: rgba(49, 211, 100, 0.16);
+  fill: rgba(112, 199, 255, 0.12);
 }
 
 .chart-line {
   fill: none;
-  stroke: var(--green);
+  stroke: var(--blue);
   stroke-width: 2.1;
   vector-effect: non-scaling-stroke;
 }
 
 .chart-card p {
   position: absolute;
-  right: 14px;
-  bottom: 12px;
+  right: 12px;
+  bottom: 10px;
   margin: 0;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 750;
 }
 
 .book-side {
@@ -877,10 +1093,13 @@ button:disabled {
 .empty {
   display: grid;
   place-items: center;
-  min-height: 96px;
+  min-height: 92px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
   color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 750;
 }
 
 @media (max-width: 960px) {
@@ -892,7 +1111,8 @@ button:disabled {
   .hero-card,
   .guided-layout,
   .below-grid,
-  .details-grid {
+  .details-grid,
+  .ticket-grid {
     grid-template-columns: 1fr;
   }
 
@@ -908,37 +1128,33 @@ button:disabled {
     flex: 1;
   }
 
-  .hero-card {
-    padding: 18px;
-  }
-
   .hero-card .primary-action {
     width: 100%;
   }
 
   .progress-strip {
-    grid-template-columns: repeat(5, 1fr);
+    display: flex;
     overflow-x: auto;
   }
 
   .progress-step {
-    min-width: 92px;
+    flex: 0 0 auto;
+    min-width: 88px;
   }
 
   .side-card {
     position: static;
   }
 
-  .selected-market-card {
-    grid-template-columns: 62px 1fr;
-  }
-
-  .selected-market-card button {
-    grid-column: 1 / -1;
+  .order-summary {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 620px) {
   .app-shell {
     width: calc(100vw - 12px);
     padding-top: 8px;
@@ -949,7 +1165,7 @@ button:disabled {
   }
 
   .hero-card h1 {
-    font-size: 28px;
+    font-size: 22px;
   }
 
   .hero-card p {
@@ -957,28 +1173,54 @@ button:disabled {
   }
 
   .progress-strip {
-    padding: 8px;
+    gap: 4px;
   }
 
-  .status-grid,
+  .progress-step {
+    min-width: 68px;
+    gap: 5px;
+    padding: 0 6px;
+  }
+
+  .progress-step b {
+    width: 20px;
+    height: 20px;
+  }
+
+  .progress-step span {
+    font-size: 11px;
+  }
+
+  .ticket-market,
+  .market-card {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .ticket-market .ghost-button,
+  .market-card-meta {
+    grid-column: 1 / -1;
+  }
+
+  .ticket-market .ghost-button {
+    width: 100%;
+  }
+
+  .market-card-meta {
+    display: flex;
+    justify-content: space-between;
+    min-width: 0;
+    text-align: left;
+  }
+
   .metric-row,
-  .side-picker,
-  .risk-row,
-  .quick-row {
+  .risk-row {
     grid-template-columns: 1fr;
   }
 
-  .side-picker button {
-    min-height: 72px;
-  }
-
-  .market-card {
-    grid-template-columns: 48px 1fr;
-  }
-
-  .market-card img {
-    width: 48px;
-    height: 48px;
+  .segmented-control button {
+    display: grid;
+    justify-items: center;
+    min-height: 58px;
   }
 
   .position-row,

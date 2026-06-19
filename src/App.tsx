@@ -64,6 +64,7 @@ type MarketLive = {
 };
 
 type Stage = "loading" | "unlock" | "system" | "arm" | "fund" | "market" | "trade";
+type RiskLimits = NonNullable<EnvCheck["risk"]>;
 
 declare global {
   interface Window {
@@ -74,6 +75,18 @@ declare global {
 }
 
 const pollMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 60000);
+const exitAutomationEnabled = false;
+const defaultRisk: RiskLimits = {
+  maxTradeUsd: 2,
+  minTradeUsd: 1.1,
+  maxFundingUsd: 2.1,
+  maxOpenPositions: 3,
+  maxPortfolioLossUsd: 10,
+  maxSpreadCents: 5,
+  maxOrderSlippageCents: 2,
+  minLiquidityUsd: 1000,
+  minHoursToResolution: 2,
+};
 
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(() => loadSession());
@@ -85,7 +98,7 @@ export default function App() {
   const [selected, setSelected] = useState<Market | null>(storedSelected);
   const [marketLive, setMarketLive] = useState<MarketLive | null>(null);
   const [side, setSide] = useState<"YES" | "NO">(loadSetting("side", "YES"));
-  const [amount, setAmount] = useState(Math.max(1.1, loadSetting("amount", 1.1)));
+  const [amount, setAmount] = useState(clampTradeAmount(loadSetting("amount", defaultRisk.minTradeUsd), defaultRisk));
   const [stopLoss, setStopLoss] = useState(loadSetting("stopLoss", 20));
   const [takeProfit, setTakeProfit] = useState(loadSetting("takeProfit", 35));
   const [polling, setPolling] = useState(loadSetting("polling", false));
@@ -99,13 +112,14 @@ export default function App() {
 
   const hasSession = Boolean(session?.token && session.expiresAt > Date.now());
   const isUnlocked = Boolean(hasSession && env?.authenticated);
+  const risk = env?.risk || defaultRisk;
   const waitingForWallet = Boolean(isUnlocked && wallet === null);
   const selectedPrice = side === "YES" ? marketLive?.yesPrice : marketLive?.noPrice;
   const botCollateral = (wallet?.botPusdBalance || 0) + (wallet?.usdcBalance || 0) + (wallet?.polUsdcEstimate || 0);
   const walletArmed = Boolean(wallet?.depositWalletExists && wallet?.approvalsReady);
-  const tradeCollateralNeeded = Math.max(1.05, amount * 1.04);
+  const tradeCollateralNeeded = Math.max(risk.minTradeUsd * 1.04, amount * 1.04);
   const depositTopUp = Math.max(0, tradeCollateralNeeded - (wallet?.pusdBalance || 0));
-  const depositAmount = Math.max(1, Math.ceil(depositTopUp * 100) / 100);
+  const depositAmount = Math.min(risk.maxFundingUsd, Math.max(1, Math.ceil(depositTopUp * 100) / 100));
   const tradeFunded = Boolean(wallet?.readyToTrade && (wallet?.pusdBalance || 0) >= tradeCollateralNeeded);
   const exposure = useMemo(() => positions.reduce((sum, position) => sum + position.value, 0), [positions]);
   const pnl = useMemo(() => positions.reduce((sum, position) => sum + position.pnl, 0), [positions]);
@@ -238,8 +252,6 @@ export default function App() {
       side,
       amountUsd: amount,
       limitPrice: selectedPrice,
-      stopLossPercent: stopLoss,
-      takeProfitPercent: takeProfit,
     });
     setNotice(data.message);
     if (data.status) setWallet(data.status);
@@ -247,13 +259,14 @@ export default function App() {
   });
 
   const sell = (position: Position) => run("sell", async () => {
+    const ok = window.confirm(`Sell ${position.shares.toFixed(2)} ${position.side} shares using the live CLOB bid?`);
+    if (!ok) return;
     const data = await callApi<{ ok: boolean; message: string; status?: WalletStatus }>("sell", {
       positionId: position.id,
       marketId: position.marketId,
       side: position.side,
       tokenId: position.tokenId,
       shares: position.shares,
-      limitPrice: position.currentPrice,
       reason: "manual",
     });
     setNotice(data.message);
@@ -304,13 +317,17 @@ export default function App() {
   }, [loadMarketLive, selected, side]);
 
   useEffect(() => saveSetting("side", side), [side]);
-  useEffect(() => saveSetting("amount", amount), [amount]);
+  useEffect(() => {
+    const clamped = clampTradeAmount(amount, risk);
+    if (clamped !== amount) setAmount(clamped);
+    else saveSetting("amount", amount);
+  }, [amount, risk.maxTradeUsd, risk.minTradeUsd]);
   useEffect(() => saveSetting("stopLoss", stopLoss), [stopLoss]);
   useEffect(() => saveSetting("takeProfit", takeProfit), [takeProfit]);
   useEffect(() => saveSetting("polling", polling), [polling]);
 
   useEffect(() => {
-    if (!polling || !isUnlocked || !tradeFunded || positions.length === 0) return;
+    if (!exitAutomationEnabled || !polling || !isUnlocked || !tradeFunded || positions.length === 0) return;
     let running = false;
     async function tick() {
       if (running) return;
@@ -475,7 +492,8 @@ export default function App() {
               side={side}
               setSide={setSide}
               amount={amount}
-              setAmount={setAmount}
+              setAmount={(value) => setAmount(clampTradeAmount(value, risk))}
+              risk={risk}
               selectedPrice={selectedPrice}
               tradeCollateralNeeded={tradeCollateralNeeded}
               stopLoss={stopLoss}
@@ -516,8 +534,8 @@ export default function App() {
             ))}
           </div>
           <label className="toggle-row">
-            <input type="checkbox" checked={polling} disabled={!isUnlocked || !tradeFunded || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
-            <span>Auto-check stop / take-profit every 60s</span>
+            <input type="checkbox" checked={exitAutomationEnabled && polling} disabled={!exitAutomationEnabled || !isUnlocked || !tradeFunded || positions.length === 0} onChange={(event) => setPolling(event.target.checked)} />
+            <span>{exitAutomationEnabled ? "Auto-check stop / take-profit every 60s" : "Auto exits unavailable in this build"}</span>
           </label>
         </section>
 
@@ -735,6 +753,7 @@ function TradePanel(props: {
   setSide: (side: "YES" | "NO") => void;
   amount: number;
   setAmount: (amount: number) => void;
+  risk: RiskLimits;
   selectedPrice?: number;
   tradeCollateralNeeded: number;
   stopLoss: number;
@@ -763,7 +782,7 @@ function TradePanel(props: {
       </div>
 
       <div className="trade-form">
-        <MoneyInput label="Trade amount" value={props.amount} setValue={(value) => props.setAmount(Math.max(1.1, value))} />
+        <MoneyInput label="Trade amount" value={props.amount} min={props.risk.minTradeUsd} max={props.risk.maxTradeUsd} setValue={props.setAmount} />
         <div className="quick-row">
           {[1.1, 2].map((value) => (
             <button key={value} className={props.amount === value ? "active" : ""} onClick={() => props.setAmount(value)}>{money(value)}</button>
@@ -775,8 +794,8 @@ function TradePanel(props: {
           <Metric label="Buffer" value={money(props.tradeCollateralNeeded - props.amount)} />
         </div>
         <div className="risk-row">
-          <NumberInput label="Stop loss" suffix="%" value={props.stopLoss} setValue={props.setStopLoss} />
-          <NumberInput label="Take profit" suffix="%" value={props.takeProfit} setValue={props.setTakeProfit} />
+          <NumberInput label="Stop loss" suffix="%" value={props.stopLoss} setValue={props.setStopLoss} disabled={!exitAutomationEnabled} />
+          <NumberInput label="Take profit" suffix="%" value={props.takeProfit} setValue={props.setTakeProfit} disabled={!exitAutomationEnabled} />
         </div>
         <button className="primary-action trade-button" onClick={props.buy} disabled={Boolean(props.busy)}>
           {props.busy ? busyLabel(props.busy) : `Buy ${props.side} ${money(props.amount)}`}
@@ -799,12 +818,12 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
   return <div className={`metric ${tone || ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function MoneyInput({ label, value, setValue }: { label: string; value: number; setValue: (value: number) => void }) {
-  return <label className="money-input"><span>{label}</span><div><b>$</b><input type="number" min="1.1" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div></label>;
+function MoneyInput({ label, value, min, max, setValue }: { label: string; value: number; min: number; max: number; setValue: (value: number) => void }) {
+  return <label className="money-input"><span>{label}</span><div><b>$</b><input type="number" min={min} max={max} step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div></label>;
 }
 
-function NumberInput({ label, value, setValue, suffix = "" }: { label: string; value: number; setValue: (value: number) => void; suffix?: string }) {
-  return <label className="number-input"><span>{label}</span><div><input type="number" min="0" step="1" value={value} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
+function NumberInput({ label, value, setValue, suffix = "", disabled = false }: { label: string; value: number; setValue: (value: number) => void; suffix?: string; disabled?: boolean }) {
+  return <label className="number-input"><span>{label}</span><div><input type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => setValue(Number(event.target.value))} />{suffix}</div></label>;
 }
 
 function Empty({ text }: { text: string }) {
@@ -889,7 +908,11 @@ function saveSession(session: AuthSession) {
 function loadSession(): AuthSession | null {
   try {
     const session = JSON.parse(localStorage.getItem("wizardSession") || "null") as AuthSession | null;
-    if (!session?.token || session.expiresAt < Date.now()) return null;
+    if (!session?.token || session.expiresAt < Date.now()) {
+      localStorage.removeItem("wizardSession");
+      localStorage.removeItem("wizardSessionToken");
+      return null;
+    }
     localStorage.setItem("wizardSessionToken", session.token);
     return session;
   } catch {
@@ -925,4 +948,9 @@ function signedMoney(value: number) {
 function short(value: string) {
   if (!value || value === "unknown") return value || "--";
   return value.length > 16 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+}
+
+function clampTradeAmount(value: number, risk: Pick<RiskLimits, "minTradeUsd" | "maxTradeUsd">) {
+  if (!Number.isFinite(value)) return risk.minTradeUsd;
+  return Math.min(risk.maxTradeUsd, Math.max(risk.minTradeUsd, Math.round(value * 100) / 100));
 }

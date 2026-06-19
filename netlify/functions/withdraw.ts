@@ -1,4 +1,4 @@
-import { error, json } from "./_env";
+import { envCheck, error, json } from "./_env";
 import { requireAuth } from "./_auth";
 import { writeJournal } from "./_journal";
 import { getWalletStatusDetails, withdrawPusdFromDepositWallet } from "./_polymarket";
@@ -12,6 +12,9 @@ export default async function handler(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const amountUsd = Number(body.amountUsd || body.amount || 1);
+  const env = envCheck();
+
+  if (!env.ok) return error(`Missing env vars: ${env.missing.join(", ")}`);
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) return error("Invalid amount");
 
   try {

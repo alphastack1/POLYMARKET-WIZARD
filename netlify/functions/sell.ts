@@ -17,13 +17,17 @@ export default async function handler(req: Request) {
   if (!body.positionId) return error("Missing positionId");
   if (!body.tokenId) return error("Missing tokenId");
   if (!Number.isFinite(Number(body.shares)) || Number(body.shares) <= 0) return error("Invalid shares");
+  if (body.limitPrice !== undefined) {
+    const limitPrice = Number(body.limitPrice);
+    if (!Number.isFinite(limitPrice) || limitPrice < 0.01 || limitPrice > 0.99) return error("Invalid limit price");
+  }
 
   try {
     const order = await placeTokenOrder({
       tokenId: String(body.tokenId),
       action: "sell",
       shares: Number(body.shares),
-      limitPrice: body.limitPrice ? Number(body.limitPrice) : 0.01,
+      limitPrice: body.limitPrice !== undefined ? Number(body.limitPrice) : undefined,
     });
     const status = await getWalletStatusDetails();
 

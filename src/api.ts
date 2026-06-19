@@ -1,5 +1,5 @@
 export async function callApi<T>(name: string, body?: unknown): Promise<T> {
-  const token = localStorage.getItem("wizardSessionToken");
+  const token = sessionToken();
   const headers: Record<string, string> = {};
   if (body) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -23,4 +23,22 @@ export async function callApi<T>(name: string, body?: unknown): Promise<T> {
   }
 
   return data as T;
+}
+
+function sessionToken() {
+  try {
+    const raw = localStorage.getItem("wizardSession");
+    const session = raw ? JSON.parse(raw) as { token?: string; expiresAt?: number } : null;
+    if (!session?.token || !session.expiresAt || session.expiresAt < Date.now()) {
+      localStorage.removeItem("wizardSession");
+      localStorage.removeItem("wizardSessionToken");
+      return "";
+    }
+    localStorage.setItem("wizardSessionToken", session.token);
+    return session.token;
+  } catch {
+    localStorage.removeItem("wizardSession");
+    localStorage.removeItem("wizardSessionToken");
+    return "";
+  }
 }

@@ -25,9 +25,21 @@ export type EnvCheck = {
   mode: string;
   rpcConfigured: boolean;
   fallbackCount: number;
+  authSecretConfigured?: boolean;
   authRequired?: boolean;
   authenticated?: boolean;
   sessionAddress?: string;
+  risk?: {
+    maxTradeUsd: number;
+    minTradeUsd: number;
+    maxFundingUsd: number;
+    maxOpenPositions: number;
+    maxPortfolioLossUsd: number;
+    maxSpreadCents: number;
+    maxOrderSlippageCents: number;
+    minLiquidityUsd: number;
+    minHoursToResolution: number;
+  };
 };
 
 export type WalletStatus = {

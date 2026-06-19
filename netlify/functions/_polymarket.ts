@@ -11,6 +11,7 @@ import {
   orderToJsonV2,
 } from "@polymarket/clob-client-v2";
 import { encodeFunctionData, formatEther, formatUnits, maxUint256, parseUnits, zeroAddress } from "viem";
+import { riskConfig } from "./_env";
 import { writeJournal } from "./_journal";
 import { validateMarket, type Market } from "./_market";
 import {
@@ -484,8 +485,12 @@ export async function placeOrder(params: {
   const tickSize = await client.getTickSize(tokenId);
   const negRisk = await client.getNegRisk(tokenId).catch(() => Boolean(params.market.negRisk));
   const marketPrice = Number(params.side === "YES" ? check.yesPrice : check.noPrice);
-  const limitPrice = normalizePrice(
-    params.limitPrice || (params.action === "buy" ? Math.min(0.99, marketPrice + 0.02) : Math.max(0.01, marketPrice - 0.02)),
+  const limitPrice = await resolveLimitPrice(
+    client,
+    tokenId,
+    params.action,
+    params.limitPrice,
+    marketPrice,
     tickSize,
   );
 
@@ -527,7 +532,7 @@ export async function placeTokenOrder(params: {
   action: "buy" | "sell";
   amountUsd?: number;
   shares?: number;
-  limitPrice: number;
+  limitPrice?: number;
 }) {
   const status = await getWalletStatusDetails();
   if (!status.depositWalletExists) throw new Error("Deposit wallet not deployed");
@@ -542,7 +547,14 @@ export async function placeTokenOrder(params: {
 
   const tickSize = await client.getTickSize(params.tokenId);
   const negRisk = await client.getNegRisk(params.tokenId).catch(() => false);
-  const limitPrice = normalizePrice(params.limitPrice, tickSize);
+  const limitPrice = await resolveLimitPrice(
+    client,
+    params.tokenId,
+    params.action,
+    params.limitPrice,
+    params.limitPrice,
+    tickSize,
+  );
   const amountUsd = Number(params.amountUsd || 0);
   const shares = params.action === "sell"
     ? Number(params.shares || 0)
@@ -575,6 +587,46 @@ export async function placeTokenOrder(params: {
   };
 }
 
+async function resolveLimitPrice(
+  client: ClobClient,
+  tokenId: string,
+  action: "buy" | "sell",
+  requestedPrice: number | undefined,
+  fallbackPrice: number | undefined,
+  tickSize: string,
+) {
+  const risk = riskConfig();
+  const book = await client.getOrderBook(tokenId).catch(() => null);
+  const livePrice = action === "buy" ? bestAsk(book) : bestBid(book);
+  const rawPrice = requestedPrice ?? livePrice ?? fallbackPrice;
+  if (!Number.isFinite(rawPrice)) throw new Error("No live limit price available");
+
+  const maxSlip = risk.maxOrderSlippageCents / 100;
+  if (livePrice && action === "buy" && rawPrice > livePrice + maxSlip) {
+    throw new Error(`Limit price is more than ${risk.maxOrderSlippageCents}c above the live ask.`);
+  }
+  if (livePrice && action === "sell" && rawPrice < livePrice - maxSlip) {
+    throw new Error(`Limit price is more than ${risk.maxOrderSlippageCents}c below the live bid.`);
+  }
+
+  return normalizePrice(rawPrice, tickSize);
+}
+
+function bestAsk(book: Awaited<ReturnType<ClobClient["getOrderBook"]>> | null) {
+  return topBookPrice(book?.asks || [], "asc");
+}
+
+function bestBid(book: Awaited<ReturnType<ClobClient["getOrderBook"]>> | null) {
+  return topBookPrice(book?.bids || [], "desc");
+}
+
+function topBookPrice(levels: { price: string; size: string }[], direction: "asc" | "desc") {
+  return [...levels]
+    .map((level) => ({ price: Number(level.price), size: Number(level.size) }))
+    .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.size) && level.size > 0)
+    .sort((a, b) => direction === "asc" ? a.price - b.price : b.price - a.price)[0]?.price;
+}
+
 async function quoteSpendablePolToUsdc(polRaw: bigint) {
   if (polRaw <= POL_GAS_RESERVE) return 0n;
   const quote = await quoteBestPolSwap(polRaw - POL_GAS_RESERVE);
@@ -602,6 +654,7 @@ async function quotePolSwap(amountIn: bigint, fee: typeof POL_SWAP_FEES[number])
 }
 
 function normalizePrice(price: number, tickSize: string) {
+  if (!Number.isFinite(price)) throw new Error("Invalid limit price");
   const decimals = tickDecimals(tickSize);
   const factor = 10 ** decimals;
   return Math.max(0.01, Math.min(0.99, Math.floor(price * factor) / factor));

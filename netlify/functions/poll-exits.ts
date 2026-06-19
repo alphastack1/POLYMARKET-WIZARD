@@ -15,9 +15,14 @@ export default async function handler(req: Request) {
   }
 
   await writeJournal({
-    type: "poll",
-    message: "Poll ran. No positions available to exit.",
+    type: "poll_skipped",
+    message: "Auto-exit polling is not enabled in this build; no orders were submitted.",
   });
 
-  return json({ ok: true, message: "Poll complete. No exits triggered.", sold: 0 });
+  return json({
+    ok: true,
+    enabled: false,
+    message: "Auto-exit polling is not enabled in this build; no orders were submitted.",
+    sold: 0,
+  });
 }

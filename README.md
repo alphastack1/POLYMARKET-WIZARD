@@ -12,6 +12,9 @@ The app can:
 - Sell positions and track a lightweight activity log.
 - Require the bot wallet to sign in before any funded action can run.
 
+Auto-exit polling is intentionally disabled in the current build. Manual sells are
+supported; stop-loss/take-profit automation should be treated as a future feature.
+
 ## Guide
 
 Read the full build and setup guide:

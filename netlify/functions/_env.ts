@@ -29,6 +29,8 @@ export function envCheck() {
     mode: process.env.VITE_APP_MODE || "hot-wallet",
     rpcConfigured: Boolean(process.env.POLYGON_RPC_URL),
     fallbackCount: (process.env.POLYGON_RPC_FALLBACKS || "").split(",").filter(Boolean).length,
+    authSecretConfigured: Boolean(process.env.AUTH_SECRET),
+    risk: riskConfig(),
   };
 }
 
@@ -44,9 +46,11 @@ export function riskConfig() {
   return {
     maxTradeUsd: 2,
     minTradeUsd: 1.1,
+    maxFundingUsd: 2.1,
     maxOpenPositions: 3,
-    maxDailyLossUsd: 10,
+    maxPortfolioLossUsd: 10,
     maxSpreadCents: 5,
+    maxOrderSlippageCents: 2,
     minLiquidityUsd: 1000,
     minHoursToResolution: 2,
   };

@@ -49,6 +49,8 @@ stateDiagram-v2
 
 The frontend should feel like a guided journey, not a giant control panel. At each step there should be one obvious next action.
 
+Current build note: manual buy, sell, deposit, and withdrawal actions are live. Automatic stop-loss/take-profit exits are disabled until duplicate-order protection and live exit previews are added.
+
 ## What Runs Where
 
 ```mermaid
@@ -279,6 +281,9 @@ The app should refuse to trade when:
 - Liquidity is too low.
 - Spread is too wide.
 - Trade size is below minimum or above maximum.
+- Deposit funding is above the maximum funding amount.
+- Order limit price is more than the allowed live CLOB slippage guard.
+- Open position count or open portfolio loss is already above the configured limit.
 
 Current default risk config:
 
@@ -287,9 +292,11 @@ export function riskConfig() {
   return {
     maxTradeUsd: 2,
     minTradeUsd: 1.1,
+    maxFundingUsd: 2.1,
     maxOpenPositions: 3,
-    maxDailyLossUsd: 10,
+    maxPortfolioLossUsd: 10,
     maxSpreadCents: 5,
+    maxOrderSlippageCents: 2,
     minLiquidityUsd: 1000,
     minHoursToResolution: 2,
   };
@@ -311,11 +318,11 @@ These are code defaults, not required environment variables.
 | `setup-wallet` | No | Deploys deposit wallet and sets approvals. |
 | `deposit` | No | Swaps/wraps collateral and funds deposit wallet. |
 | `buy` | No | Validates market and posts CLOB buy order. |
-| `sell` | No | Posts CLOB sell order. |
+| `sell` | No | Posts CLOB sell order using a live bid guard. |
 | `withdraw` | No | Moves pUSD from deposit wallet back to bot wallet. |
 | `positions` | No | Reads stored/open position state. |
 | `journal` | No | Reads activity log. |
-| `poll-exits` | No | Checks stop-loss/take-profit rules. |
+| `poll-exits` | No | Disabled placeholder. Returns without submitting orders. |
 
 ## Repo Layout
 

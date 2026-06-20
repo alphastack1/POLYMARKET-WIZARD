@@ -8,6 +8,9 @@ Use a fresh wallet. Keep the funding tiny. This is hot-wallet infrastructure, no
 
 Creator note: if this guide helps and you are creating a Polymarket account anyway, you can use the AlphaStack referral link: <https://polymarket.com/?via=alphastack-eymx>.
 
+The frontend app repo is here:
+<https://github.com/alphastack1/POLYMARKET-WIZARD/>.
+
 ## The Whole Bot Flow
 
 ```mermaid

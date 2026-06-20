@@ -561,6 +561,7 @@ export default function App() {
               withdrawAmount={withdrawAmount}
               setWithdrawAmount={setWithdrawAmount}
               connectWallet={connectWallet}
+              openTrade={() => setActiveTab("trade")}
             />
           )}
         </>
@@ -753,7 +754,24 @@ function SettingsScreen(props: {
   withdrawAmount: number;
   setWithdrawAmount: (value: number) => void;
   connectWallet: () => void;
+  openTrade: () => void;
 }) {
+  const envReady = props.booted && Boolean(props.env?.ok);
+  const availablePusd = props.wallet?.pusdBalance || 0;
+  const canTopUp = props.unlocked && props.walletArmed && !props.tradeFunded && props.depositAmount > 0 && props.botCollateral >= props.depositAmount && !props.busy;
+  const canWithdraw = props.unlocked && props.walletArmed && availablePusd > 0 && props.withdrawAmount > 0 && !props.busy;
+  const nextStep = !envReady
+    ? "Fix config"
+    : !props.unlocked
+      ? "Unlock"
+      : !props.walletArmed
+        ? "Arm wallet"
+        : !props.tradeFunded
+          ? "Top up"
+          : !props.marketReady
+            ? "Pick market"
+            : "Ready";
+
   return (
     <section className="app-screen settings-screen">
       <AccountRail
@@ -775,47 +793,66 @@ function SettingsScreen(props: {
         withdraw={props.withdraw}
         withdrawAmount={props.withdrawAmount}
         setWithdrawAmount={props.setWithdrawAmount}
+        connectWallet={props.connectWallet}
+        openTrade={props.openTrade}
+        envReady={envReady}
+        canTopUp={canTopUp}
+        canWithdraw={canWithdraw}
+        availablePusd={availablePusd}
+        nextStep={nextStep}
       />
 
       <section className="settings-panel">
-        <PanelHeader icon={<ShieldCheck size={16} />} title="Trading defaults" value={props.side} />
+        <PanelHeader icon={<ShieldCheck size={16} />} title="Trade preferences" value={money(props.amount)} />
+        <p className="panel-help">These only pre-fill the ticket. Every order still opens on the Trade tab for review before anything submits.</p>
         <div className="settings-stack">
-          {!props.unlocked && (
-            <button className="solid-button wide" onClick={props.connectWallet} disabled={Boolean(props.busy)}>
-              <KeyRound size={15} />Unlock wallet
-            </button>
-          )}
-
           <div className="setting-card">
-            <span>Default outcome</span>
-            <div className="mini-segment">
-              <button className={props.side === "YES" ? "active yes" : "yes"} onClick={() => props.setSide("YES")}>YES</button>
-              <button className={props.side === "NO" ? "active no" : "no"} onClick={() => props.setSide("NO")}>NO</button>
+            <div className="setting-copy">
+              <span>Starting side</span>
+              <strong>{props.side}</strong>
+              <p>Used as the first selected side when a ticket opens. Change it on the Trade tab before buying.</p>
+            </div>
+            <div className="mini-segment side-choice">
+              <button className={props.side === "YES" ? "active yes" : "yes"} onClick={() => props.setSide("YES")}>
+                <b>YES</b>
+                <small>Event happens</small>
+              </button>
+              <button className={props.side === "NO" ? "active no" : "no"} onClick={() => props.setSide("NO")}>
+                <b>NO</b>
+                <small>Event does not happen</small>
+              </button>
             </div>
           </div>
 
           <div className="setting-card">
-            <span>Default trade size</span>
+            <div className="setting-copy">
+              <span>Trade size</span>
+              <strong>{money(props.amount)}</strong>
+              <p>The default order amount. This app is intentionally capped for small live demos.</p>
+            </div>
             <div className="amount-tools compact">
               <button onClick={() => props.setAmount(props.amount - 0.1)}><Minus size={14} /></button>
               <input type="range" min={props.risk.minTradeUsd} max={props.risk.maxTradeUsd} step="0.01" value={props.amount} onChange={(event) => props.setAmount(Number(event.target.value))} />
               <button onClick={() => props.setAmount(props.amount + 0.1)}><Plus size={14} /></button>
             </div>
-            <strong>{money(props.amount)}</strong>
+            <div className="range-caption">
+              <span>{money(props.risk.minTradeUsd)} min</span>
+              <span>{money(props.risk.maxTradeUsd)} max</span>
+            </div>
           </div>
 
-          <details className="settings-details" open={!props.env?.ok}>
-            <summary><span>Environment</span><ChevronDown size={15} /></summary>
+          <details className="settings-details" open={!envReady}>
+            <summary><span>App health</span><ChevronDown size={15} /></summary>
             <div className="detail-lines">
               <KeyValue label="Mode" value={props.env?.mode || "--"} />
               <KeyValue label="RPC" value={props.env?.rpcConfigured ? "Configured" : "Missing"} tone={props.env?.rpcConfigured ? "good" : "bad"} />
-              <KeyValue label="Auth" value={props.env?.authRequired ? "Required" : "Open"} />
+              <KeyValue label="Login" value={props.env?.authRequired ? "Required" : "Open"} />
               <KeyValue label="Missing" value={props.env?.missing?.length ? props.env.missing.join(", ") : "None"} tone={props.env?.missing?.length ? "bad" : "good"} />
             </div>
           </details>
 
-          <details className="settings-details" open>
-            <summary><span>Guardrails</span><ChevronDown size={15} /></summary>
+          <details className="settings-details">
+            <summary><span>Safety limits</span><ChevronDown size={15} /></summary>
             <div className="guardrail-grid">
               <KeyValue label="Min trade" value={money(props.risk.minTradeUsd)} />
               <KeyValue label="Max trade" value={money(props.risk.maxTradeUsd)} />
@@ -879,63 +916,120 @@ function AccountRail(props: {
   withdraw: () => void;
   withdrawAmount: number;
   setWithdrawAmount: (value: number) => void;
+  connectWallet: () => void;
+  openTrade: () => void;
+  envReady: boolean;
+  canTopUp: boolean;
+  canWithdraw: boolean;
+  availablePusd: number;
+  nextStep: string;
 }) {
-  const canTopUp = props.unlocked && props.walletArmed && !props.tradeFunded && props.depositAmount > 0 && props.botCollateral >= props.depositAmount;
-  const canWithdraw = props.unlocked && props.walletArmed && (props.wallet?.pusdBalance || 0) > 0 && props.withdrawAmount > 0 && !props.busy;
+  const fundingDetail = props.tradeFunded
+    ? `${money(props.availablePusd)} pUSD ready.`
+    : props.walletArmed && props.depositAmount > 0 && props.botCollateral < props.depositAmount
+      ? `${money(props.depositAmount)} top-up needed. Add POL or USDC.e to the bot wallet first.`
+      : `${money(props.tradeCollateralNeeded)} needed for current size.`;
 
   return (
     <aside className="account-rail">
-      <PanelHeader icon={<ShieldCheck size={16} />} title="Account" value={props.unlocked ? "Unlocked" : "Locked"} />
-      <div className="readiness-list">
-        <ReadyRow label="System" ready={props.booted && Boolean(props.env?.ok)} value={props.env?.ok ? "Ready" : "Check"} />
-        <ReadyRow label="Session" ready={props.unlocked} value={props.unlocked ? "Signed" : "Locked"} />
-        <ReadyRow label="Wallet" ready={props.unlocked && props.walletArmed} value={props.walletArmed ? "Armed" : "Setup"} />
-        <ReadyRow label="Funds" ready={props.unlocked && props.tradeFunded} value={props.unlocked ? money(props.wallet?.pusdBalance || 0) : "--"} />
-        <ReadyRow label="Market" ready={props.marketReady} value={props.marketReady ? "Live" : "Select"} />
+      <PanelHeader icon={<ShieldCheck size={16} />} title="Setup checklist" value={props.nextStep} />
+      <p className="panel-help">Work down this list. When all five steps are green, the Trade tab is ready for a small reviewed order.</p>
+
+      <div className="setup-steps">
+        <SetupStep
+          number="1"
+          title="App configured"
+          detail={props.envReady ? "Netlify env and RPC are ready." : `Missing ${props.env?.missing?.length || "config"} setting${props.env?.missing?.length === 1 ? "" : "s"}.`}
+          done={props.envReady}
+        />
+        <SetupStep
+          number="2"
+          title="Wallet unlocked"
+          detail={props.unlocked ? "Signed session is active." : "Sign a message with the allowed control wallet."}
+          done={props.unlocked}
+          actionLabel={!props.unlocked ? "Unlock" : undefined}
+          onAction={props.connectWallet}
+          disabled={Boolean(props.busy) || !props.envReady}
+        />
+        <SetupStep
+          number="3"
+          title="Trading wallet armed"
+          detail={props.walletArmed ? "Deposit wallet and approvals are ready." : "Deploy the deposit wallet and set approvals."}
+          done={props.walletArmed}
+          actionLabel={props.unlocked && !props.walletArmed ? "Arm" : undefined}
+          onAction={props.setupWallet}
+          disabled={!props.unlocked || Boolean(props.busy)}
+        />
+        <SetupStep
+          number="4"
+          title="Trading funds available"
+          detail={fundingDetail}
+          done={props.tradeFunded}
+          actionLabel={props.unlocked && props.walletArmed && !props.tradeFunded ? "Top up" : undefined}
+          onAction={props.deposit}
+          disabled={!props.canTopUp}
+        />
+        <SetupStep
+          number="5"
+          title="Live market selected"
+          detail={props.marketReady ? "Quotes, chart, and order book are live." : "Choose a market on the Trade tab."}
+          done={props.marketReady}
+          actionLabel={!props.marketReady ? "Trade tab" : undefined}
+          onAction={props.openTrade}
+          disabled={false}
+        />
       </div>
 
-      <section className="funding-block">
+      <section className="wallet-block">
         <div className="funding-head">
-          <span>Trading wallet</span>
-          <strong>{props.tradeFunded ? "Ready" : "Needs funds"}</strong>
+          <span>Wallet balances</span>
+          <strong>{props.unlocked ? (props.tradeFunded ? "Funded" : "Needs pUSD") : "Locked"}</strong>
         </div>
         <div className="funding-bars">
-          <KeyValue label="Available" value={props.unlocked ? money(props.wallet?.pusdBalance || 0) : "Unlock first"} />
+          <KeyValue label="Control wallet" value={props.unlocked ? short(props.wallet?.botAddress || "") : "Unlock first"} />
+          <KeyValue label="Deposit wallet" value={props.walletArmed ? short(props.wallet?.depositWallet || "") : "Not deployed"} tone={props.walletArmed ? "good" : undefined} />
+          <KeyValue label="Deposited pUSD" value={props.unlocked ? money(props.availablePusd) : "--"} tone={props.tradeFunded ? "good" : undefined} />
           {props.unlocked && <KeyValue label="Required" value={money(props.tradeCollateralNeeded)} />}
           {props.unlocked && props.walletArmed && !props.tradeFunded && <KeyValue label="Suggested top-up" value={money(props.depositAmount)} />}
+          {props.unlocked && !props.tradeFunded && <KeyValue label="Bot collateral" value={money(props.botCollateral)} />}
         </div>
-        {!props.walletArmed && (
+        {props.unlocked && <p className="microcopy">Required includes the selected trade size plus a small buffer for price movement.</p>}
+        {!props.walletArmed && props.unlocked && (
           <button className="solid-button wide" onClick={props.setupWallet} disabled={!props.unlocked || Boolean(props.busy)}>
             <LockKeyhole size={15} />Arm wallet
           </button>
         )}
         {props.walletArmed && !props.tradeFunded && (
-          <button className="solid-button wide" onClick={props.deposit} disabled={!canTopUp || Boolean(props.busy)}>
+          <button className="solid-button wide" onClick={props.deposit} disabled={!props.canTopUp}>
             <ArrowDownToLine size={15} />Top up pUSD
           </button>
         )}
       </section>
 
-      <details className="rail-details">
-        <summary><span>Balances</span><ChevronDown size={15} /></summary>
-        <div className="detail-lines">
-          <KeyValue label="Bot" value={short(props.wallet?.botAddress || "")} />
-          <KeyValue label="POL quote" value={money(props.wallet?.polUsdcEstimate || 0)} />
-          <KeyValue label="USDC.e" value={money(props.wallet?.usdcBalance || 0)} />
-          <KeyValue label="pUSD" value={money(props.wallet?.pusdBalance || 0)} />
+      <section className="withdraw-card">
+        <div className="funding-head">
+          <span>Withdraw</span>
+          <strong>{props.unlocked ? money(props.availablePusd) : "Locked"}</strong>
         </div>
-      </details>
-
-      <details className="rail-details">
-        <summary><span>Withdraw</span><ChevronDown size={15} /></summary>
+        <p className="microcopy">Send pUSD from the deposit wallet back to the bot wallet.</p>
         <div className="withdraw-line">
           <label>
             <span>Amount</span>
             <input type="number" min="0.01" step="0.01" value={props.withdrawAmount} onChange={(event) => props.setWithdrawAmount(Number(event.target.value))} />
           </label>
-          <button className="icon-button" onClick={props.withdraw} disabled={!canWithdraw}>
-            <Wallet size={15} />Send
+          <button className="icon-button" onClick={props.withdraw} disabled={!props.canWithdraw}>
+            <Wallet size={15} />Withdraw
           </button>
+        </div>
+      </section>
+
+      <details className="rail-details">
+        <summary><span>More wallet details</span><ChevronDown size={15} /></summary>
+        <div className="detail-lines">
+          <KeyValue label="POL quote" value={money(props.wallet?.polUsdcEstimate || 0)} />
+          <KeyValue label="USDC.e" value={money(props.wallet?.usdcBalance || 0)} />
+          <KeyValue label="Bot pUSD" value={money(props.wallet?.botPusdBalance || 0)} />
+          <KeyValue label="Deposit pUSD" value={money(props.availablePusd)} />
         </div>
       </details>
     </aside>
@@ -1200,12 +1294,33 @@ function PanelHeader({ icon, title, value }: { icon: ReactNode; title: string; v
   return <div className="panel-header">{icon}<span>{title}</span><strong>{value}</strong></div>;
 }
 
-function ReadyRow({ label, value, ready }: { label: string; value: string; ready: boolean }) {
-  return <div className={ready ? "ready-row ready" : "ready-row"}><span>{label}</span><strong>{value}</strong></div>;
-}
-
 function KeyValue({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
   return <div className="key-value"><span>{label}</span><strong className={tone || ""}>{value}</strong></div>;
+}
+
+function SetupStep({ number, title, detail, done, actionLabel, onAction, disabled }: {
+  number: string;
+  title: string;
+  detail: string;
+  done: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={done ? "setup-step done" : "setup-step"}>
+      <div className="step-badge">{done ? <CheckCircle2 size={15} /> : number}</div>
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      {actionLabel && (
+        <button className="ghost-button" onClick={onAction} disabled={disabled}>
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function PricePill({ label, value, tone }: { label: string; value: string; tone: "yes" | "no" }) {

@@ -258,6 +258,7 @@ input {
 .key-value span,
 .amount-box label span,
 .setting-card > span,
+.setting-copy > span,
 .book-head,
 .market-search-panel small {
   color: var(--muted);
@@ -281,6 +282,20 @@ input {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.panel-help {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.microcopy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .startup-card {
@@ -957,10 +972,74 @@ input {
   display: none;
 }
 
+.setup-steps,
 .readiness-list {
   display: grid;
   gap: 6px;
   margin-top: 12px;
+}
+
+.setup-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.setup-step.done {
+  border-color: rgba(52, 213, 119, 0.28);
+  background: var(--green-soft);
+}
+
+.setup-step > div:nth-child(2) {
+  min-width: 0;
+}
+
+.setup-step strong,
+.setup-step span {
+  display: block;
+}
+
+.setup-step strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.setup-step span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.setup-step button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.step-badge {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--blue);
+  background: #0b0e0c;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.setup-step.done .step-badge {
+  border-color: rgba(52, 213, 119, 0.3);
+  color: var(--green);
+  background: rgba(52, 213, 119, 0.13);
 }
 
 .ready-row {
@@ -989,12 +1068,21 @@ input {
   color: var(--text);
 }
 
+.wallet-block,
+.withdraw-card,
 .funding-block {
   display: grid;
   gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+
+.withdraw-card {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
 }
 
 .funding-head {
@@ -1047,16 +1135,28 @@ input {
 
 .setting-card {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-2);
 }
 
+.setting-copy {
+  display: grid;
+  gap: 4px;
+}
+
 .setting-card strong {
   color: var(--text);
   font-size: 18px;
+}
+
+.setting-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .mini-segment {
@@ -1075,6 +1175,27 @@ input {
   background: transparent;
 }
 
+.side-choice button {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  min-height: 56px;
+}
+
+.side-choice b {
+  color: inherit;
+  font-size: 15px;
+}
+
+.side-choice small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mini-segment button.active.yes {
   border-color: rgba(52, 213, 119, 0.4);
   background: var(--green-soft);
@@ -1085,6 +1206,15 @@ input {
   border-color: rgba(255, 100, 120, 0.4);
   background: var(--red-soft);
   color: var(--red);
+}
+
+.range-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .position-list,
@@ -1320,6 +1450,15 @@ input {
 
   .activity-row {
     grid-template-columns: 1fr;
+  }
+
+  .setup-step {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .setup-step button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .amount-input b,

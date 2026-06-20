@@ -15,11 +15,14 @@ The app can:
 Auto-exit polling is intentionally disabled in the current build. Manual sells are
 supported; stop-loss/take-profit automation should be treated as a future feature.
 
-## Guide
+## Bot Checklist Guide
 
-Read the full build and setup guide:
+Read the base-layer checklist for what any Polymarket trading bot must have:
 
 [docs/polymarket-wizard-guide.md](docs/polymarket-wizard-guide.md)
+
+The guide is intentionally broader than this frontend. The Wizard app is one
+working prototype that implements those steps so they can be tested end to end.
 
 ## Local Run
 

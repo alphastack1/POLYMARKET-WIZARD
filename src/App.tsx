@@ -1149,13 +1149,21 @@ function ActivityPanel({ journal, unlocked }: { journal: JournalEntry[]; unlocke
       <div className="activity-list">
         {!unlocked && <Empty text="Locked" />}
         {unlocked && journal.length === 0 && <Empty text="No activity" />}
-        {journal.slice(0, 12).map((entry) => (
-          <article className="activity-row" key={entry.id}>
-            <time>{new Date(entry.at).toLocaleTimeString()}</time>
-            <strong>{entry.type}</strong>
-            <span>{entry.message}</span>
-          </article>
-        ))}
+        {journal.slice(0, 12).map((entry) => {
+          const txHash = transactionHash(entry.data);
+          return (
+            <article className="activity-row" key={entry.id}>
+              <time>{new Date(entry.at).toLocaleTimeString()}</time>
+              <strong>{entry.type}</strong>
+              <span>{entry.message}</span>
+              {txHash && (
+                <a className="tx-link" href={polygonTxUrl(txHash)} target="_blank" rel="noreferrer">
+                  Tx
+                </a>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -1366,6 +1374,25 @@ function money(value: number) {
 
 function signedMoney(value: number) {
   return `${value >= 0 ? "+" : "-"}$${Math.abs(value).toFixed(2)}`;
+}
+
+function transactionHash(data: unknown) {
+  if (!data || typeof data !== "object") return "";
+  const row = data as Record<string, unknown>;
+  for (const key of ["txHash", "transactionHash", "hash"]) {
+    const value = row[key];
+    if (typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value)) return value;
+  }
+  const receipt = row.receipt;
+  if (receipt && typeof receipt === "object") {
+    const value = (receipt as Record<string, unknown>).transactionHash;
+    if (typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value)) return value;
+  }
+  return "";
+}
+
+function polygonTxUrl(txHash: string) {
+  return `https://polygonscan.com/tx/${txHash}`;
 }
 
 function formatDate(value?: string | null) {

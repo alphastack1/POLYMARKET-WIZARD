@@ -98,7 +98,7 @@ export async function deployDepositWalletIfNeeded() {
   await writeJournal({
     type: "deposit_wallet_deployed",
     message: `Deposit wallet ready: ${short(address)}`,
-    data: { depositWallet: address },
+    data: { depositWallet: address, txHash: receipt?.transactionHash },
   });
 
   return { depositWallet: address, deployed: true };
@@ -162,7 +162,7 @@ export async function approveDepositWalletForTrading() {
   await writeJournal({
     type: "approvals_ready",
     message: "Deposit wallet approvals ready",
-    data: { depositWallet: address },
+    data: { depositWallet: address, txHash: receipt.transactionHash },
   });
 
   return receipt;

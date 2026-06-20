@@ -1155,7 +1155,7 @@ input {
 
 .activity-row {
   display: grid;
-  grid-template-columns: 76px minmax(72px, 0.45fr) minmax(0, 1fr);
+  grid-template-columns: 76px minmax(72px, 0.45fr) minmax(0, 1fr) auto;
   gap: 8px;
   min-height: 34px;
   align-items: center;
@@ -1171,6 +1171,24 @@ input {
 .activity-row span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.tx-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(119, 198, 255, 0.32);
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.tx-link:hover {
+  background: var(--blue-soft);
 }
 
 .empty-state {

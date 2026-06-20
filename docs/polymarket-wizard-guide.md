@@ -108,6 +108,8 @@ flowchart TB
 
 Use a fresh wallet. Do not use a wallet with meaningful personal funds. This app uses a server-side hot wallet by design.
 
+Creator note: if this guide helped and you are creating a Polymarket account anyway, you can use the AlphaStack referral link: <https://polymarket.com/?via=alphastack-eymx>.
+
 ## Setup Screenshots
 
 These screenshots show the important Polymarket and Netlify setup screens.

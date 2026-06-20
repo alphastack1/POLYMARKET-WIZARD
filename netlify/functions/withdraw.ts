@@ -23,12 +23,13 @@ export default async function handler(req: Request) {
     await writeJournal({
       type: "withdraw_complete",
       message: `$${amountUsd.toFixed(2)} withdrawn to bot wallet`,
-      data: { depositWallet: result.depositWallet },
+      data: { depositWallet: result.depositWallet, txHash: result.receipt.transactionHash },
     });
 
     return json({
       ok: true,
       message: `$${amountUsd.toFixed(2)} withdrawn to bot wallet.`,
+      txHash: result.receipt.transactionHash,
       status,
     });
   } catch (err) {

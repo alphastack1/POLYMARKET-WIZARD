@@ -265,7 +265,7 @@ export default function App() {
       market,
       side: position.side,
       shares: position.shares,
-      limitPrice: Math.max(0.01, position.currentPrice - 0.02),
+      limitPrice: Math.max(0.01, position.currentPrice - 0.001),
       position,
     });
   };

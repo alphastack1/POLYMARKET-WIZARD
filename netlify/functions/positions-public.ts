@@ -1,8 +1,9 @@
-import { getDepositWallet } from "./_polymarket";
+import { error, json } from "./_env";
+import { rateLimit } from "./_rate";
 
 const DATA_API = "https://data-api.polymarket.com";
 
-export type NormalizedPosition = {
+type NormalizedPosition = {
   id: string;
   marketId: string;
   question: string;
@@ -32,12 +33,16 @@ type PolyPosition = {
   outcome?: string;
 };
 
-export async function getOpenPositions() {
-  const { address: depositWallet, exists } = await getDepositWallet();
-  if (!exists) return { positions: [] as NormalizedPosition[], depositWallet };
+export default async function handler(req: Request) {
+  const limited = rateLimit(req, 120, 60_000);
+  if (!limited.ok) return error("Too many requests", 429);
+
+  const url = new URL(req.url);
+  const wallet = String(url.searchParams.get("wallet") || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) return error("Missing deposit wallet");
 
   const params = new URLSearchParams({
-    user: depositWallet.toLowerCase(),
+    user: wallet.toLowerCase(),
     limit: "100",
     sizeThreshold: "0.01",
     sortBy: "CURRENT",
@@ -45,13 +50,10 @@ export async function getOpenPositions() {
   });
 
   const res = await fetch(`${DATA_API}/positions?${params}`);
-  if (!res.ok) throw new Error(`Data API error: ${res.status}`);
-
+  if (!res.ok) return error(`Data API error: ${res.status}`, 502);
   const raw = await res.json().catch(() => []);
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.value) ? raw.value : [];
-  const positions = rows.map(normalizePosition);
-
-  return { positions, depositWallet };
+  return json({ ok: true, positions: rows.map(normalizePosition), depositWallet: wallet });
 }
 
 function normalizePosition(position: PolyPosition): NormalizedPosition {

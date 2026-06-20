@@ -22,6 +22,7 @@ export type EnvCheck = {
   ok: boolean;
   missing: string[];
   botAddress?: string;
+  builderCode?: string;
   mode: string;
   rpcConfigured: boolean;
   fallbackCount: number;
@@ -29,6 +30,11 @@ export type EnvCheck = {
   authRequired?: boolean;
   authenticated?: boolean;
   sessionAddress?: string;
+  publicAppDisabled?: boolean;
+  builderFee?: {
+    makerBps: number;
+    takerBps: number;
+  };
   risk?: {
     maxTradeUsd: number;
     minTradeUsd: number;

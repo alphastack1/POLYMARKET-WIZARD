@@ -74,9 +74,10 @@ input {
 }
 
 .wizard-shell {
-  width: min(100vw - 12px, 1240px);
+  width: 100%;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 6px 0 26px;
+  padding: 6px 6px 26px;
 }
 
 .topbar {
@@ -1335,8 +1336,7 @@ input {
 
 @media (min-width: 560px) {
   .wizard-shell {
-    width: min(100vw - 20px, 1240px);
-    padding-top: 10px;
+    padding: 10px 10px 26px;
   }
 
   .topbar,
@@ -1426,7 +1426,8 @@ input {
 
 @media (max-width: 390px) {
   .wizard-shell {
-    width: min(100vw - 8px, 1240px);
+    padding-right: 4px;
+    padding-left: 4px;
   }
 
   .topbar-actions {

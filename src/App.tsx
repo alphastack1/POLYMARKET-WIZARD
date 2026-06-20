@@ -170,7 +170,6 @@ export default function App() {
           await loadMarketLive(first);
         }
       }
-      setNotice(`${data.markets.length} markets loaded`);
     });
   }, [keyword, loadMarketLive, run, selected]);
 
@@ -343,16 +342,6 @@ export default function App() {
 
       {(error || notice) && <Toast tone={error ? "bad" : "good"}>{error || notice}</Toast>}
 
-      <section className="status-strip">
-        {setupChecks.map((check) => (
-          <div key={check.label} className={check.done ? "status-chip done" : "status-chip"}>
-            {check.done ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
-            <span>{check.label}</span>
-            <strong>{check.value}</strong>
-          </div>
-        ))}
-      </section>
-
       <nav className="tabs">
         <TabButton active={activeTab === "setup"} onClick={() => setActiveTab("setup")} icon={<ShieldCheck size={16} />} title="Setup" value={setupReady ? "Ready" : "Start"} />
         <TabButton active={activeTab === "trade"} onClick={() => setActiveTab("trade")} disabled={!setupReady} icon={<TrendingUp size={16} />} title="Trade" value={tradeReady ? "Live" : "Locked"} />
@@ -499,22 +488,50 @@ function SetupScreen(props: {
   goTrade: () => void;
 }) {
   const needsPrepare = props.connected && !props.setupReady;
+  const readyCount = props.checks.filter((check) => check.done).length;
+  const progress = Math.round((readyCount / props.checks.length) * 100);
+  const currentStep = props.checks.find((check) => !check.done);
+  const headline = !props.connected
+    ? "Connect your wallet"
+    : needsPrepare
+      ? "Prepare trading access"
+      : !props.funded
+        ? "Fund your deposit wallet"
+        : "Ready to trade";
+  const copy = !props.connected
+    ? "Use your own wallet. The app does not hold a seed phrase or custody your funds."
+    : needsPrepare
+      ? "Create your Polymarket deposit wallet, approve trading, and create local CLOB credentials."
+      : !props.funded
+        ? "Move a small amount of pUSD into the deposit wallet before opening an order."
+        : "Setup is complete. You can search markets, review an order, and sign trades from this wallet.";
+
+  const action = !props.connected
+    ? { label: "Connect wallet", onClick: props.connect, disabled: props.busy === "connecting", busyKey: "connecting" }
+    : needsPrepare
+      ? { label: "Prepare wallet", onClick: props.prepareWallet, disabled: Boolean(props.busy), busyKey: "preparing" }
+      : !props.funded
+        ? { label: `Deposit ${money(props.depositAmount)}`, onClick: props.fund, disabled: Boolean(props.busy), busyKey: "funding" }
+        : { label: "Open trading", onClick: props.goTrade, disabled: false, busyKey: "" };
+  const actionBusy = props.busy === action.busyKey;
+
   return (
     <section className="setup-grid">
-      <section className="hero-panel">
-        <span className="eyebrow">Public wallet mode</span>
-        <h2>Set up your own Polymarket trading wallet.</h2>
-        <p>Your connected wallet owns the deposit wallet, signs setup, funds pUSD, and signs trades. This site supplies the interface and Builder routing.</p>
-        <div className="hero-actions">
-          {!props.connected && <button className="solid-button big" onClick={props.connect}>Connect wallet <ArrowRight size={17} /></button>}
-          {needsPrepare && <button className="solid-button big" onClick={props.prepareWallet} disabled={Boolean(props.busy)}>Prepare wallet <ArrowRight size={17} /></button>}
-          {props.setupReady && !props.funded && <button className="solid-button big" onClick={props.fund} disabled={Boolean(props.busy)}>Deposit pUSD <ArrowRight size={17} /></button>}
-          {props.setupReady && props.funded && <button className="solid-button big" onClick={props.goTrade}>Open trading <ArrowRight size={17} /></button>}
+      <section className="desk-panel setup-primary">
+        <PanelHeader icon={<ShieldCheck size={16} />} title="Setup" value={`${readyCount}/${props.checks.length} ready`} />
+        <div className="setup-progress" aria-label={`Setup ${progress}% complete`}>
+          <span style={{ width: `${progress}%` }} />
         </div>
+        <h2>{headline}</h2>
+        <p>{copy}</p>
+        <button className="solid-button big" onClick={action.onClick} disabled={action.disabled}>
+          {actionBusy ? busyLabel(action.busyKey) : action.label} <ArrowRight size={17} />
+        </button>
+        {currentStep && <small className="next-step">Next: {currentStep.label}</small>}
       </section>
 
-      <section className="desk-panel">
-        <PanelHeader icon={<ShieldCheck size={16} />} title="Setup checklist" value={props.setupReady ? "Ready" : "Needs setup"} />
+      <section className="desk-panel setup-steps">
+        <PanelHeader icon={<CheckCircle2 size={16} />} title="Checklist" value={props.setupReady ? "Ready" : "In progress"} />
         <div className="check-list">
           {props.checks.map((check, index) => (
             <div key={check.label} className={check.done ? "check-row done" : "check-row"}>
@@ -528,16 +545,32 @@ function SetupScreen(props: {
         </div>
       </section>
 
-      <section className="desk-panel">
-        <PanelHeader icon={<ArrowDownToLine size={16} />} title="Fund wallet" value={money(props.wallet?.pusdBalance || 0)} />
-        <p className="panel-copy">Deposit pUSD into your Polymarket deposit wallet. If your connected wallet has pUSD it transfers directly; if it has USDC.e it wraps; if it only has POL, the app swaps then wraps.</p>
-        <label className="field">
-          <span>Deposit amount</span>
-          <input type="number" min="1" step="0.01" value={props.depositAmount} onChange={(event) => props.setDepositAmount(Math.max(1, Number(event.target.value)))} />
-        </label>
-        <button className="solid-button wide" onClick={props.fund} disabled={!props.setupReady || Boolean(props.busy)}>
-          Deposit {money(props.depositAmount)}
-        </button>
+      <section className="desk-panel setup-wallet">
+        <PanelHeader icon={<Wallet size={16} />} title="Wallet" value={money(props.wallet?.pusdBalance || 0)} />
+        {props.connected ? (
+          <div className="summary-box">
+            <KeyValue label="Connected" value={short(props.address || "") || "--"} />
+            <KeyValue label="Deposit wallet" value={short(props.wallet?.depositWallet || "") || "--"} />
+            <KeyValue label="Deposit pUSD" value={money(props.wallet?.pusdBalance || 0)} />
+            <KeyValue label="Wallet USDC.e" value={money(props.wallet?.usdcBalance || 0)} />
+          </div>
+        ) : (
+          <div className="empty-state">Connect wallet to see balances</div>
+        )}
+        {props.setupReady ? (
+          <>
+            <p className="panel-copy">Fund this deposit wallet before placing orders. Withdrawals are in Account.</p>
+            <label className="field">
+              <span>Deposit amount</span>
+              <input type="number" min="1" step="0.01" value={props.depositAmount} onChange={(event) => props.setDepositAmount(Math.max(1, Number(event.target.value)))} />
+            </label>
+            <button className="solid-button wide" onClick={props.fund} disabled={Boolean(props.busy)}>
+              Deposit {money(props.depositAmount)}
+            </button>
+          </>
+        ) : (
+          <p className="panel-copy">{props.connected ? "Finish setup before funding." : "Connect wallet before funding."}</p>
+        )}
       </section>
     </section>
   );

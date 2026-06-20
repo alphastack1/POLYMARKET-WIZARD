@@ -3,7 +3,7 @@ import { defineChain } from "viem";
 export const CHAIN_ID = 137;
 export const RELAYER_URL = "https://relayer-v2.polymarket.com";
 export const CLOB_HOST = "https://clob.polymarket.com";
-export const POLYGON_RPC_URL = import.meta.env.VITE_POLYGON_RPC_URL || "https://polygon-rpc.com";
+export const POLYGON_RPC_URL = import.meta.env.VITE_POLYGON_RPC_URL || "https://polygon-bor-rpc.publicnode.com";
 
 export const polygonWithRpc = defineChain({
   id: CHAIN_ID,
